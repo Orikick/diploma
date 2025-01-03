@@ -10,7 +10,7 @@ def process_text(text):
     # Приведення тексту до нижнього регістру
     text = text.lower()
     # Видалення розділових знаків та цифр
-    translator = str.maketrans("", "", string.punctuation + string.digits + "—" + "…")
+    translator = str.maketrans("", "", string.punctuation + string.digits + "—" + "…" + "→")
     text = text.translate(translator)
     return text
 
