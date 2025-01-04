@@ -5,6 +5,39 @@ import string
 INPUT_FOLDER = "texts"
 OUTPUT_FOLDER = "processed_texts"
 
+# Визначаємо множини голосних та приголосних літер
+VOWELS = set('аеєиіїоуюяёэы')
+CONSONANTS = set('бвгґджзйклмнпрстфхцчшщь')
+
+def replace_letters(text):
+    result = []
+    words = text.split()
+    
+    for word in words:
+        new_word = ''
+        i = 0
+        while i < len(word):
+            # Перевіряємо поточну літеру
+            if word[i] in 'яюєї':
+                # На початку слова
+                if i == 0:
+                    replacement = {'я': 'йа', 'ю': 'йу', 'є': 'йе', 'ї': 'йі'}[word[i]]
+                # Після голосної чи апострофа
+                elif i > 0 and (word[i-1] in VOWELS or word[i-1] == "'"):
+                    replacement = {'я': 'йа', 'ю': 'йу', 'є': 'йе', 'ї': 'йі'}[word[i]]
+                # Після приголосної
+                elif i > 0 and word[i-1] in CONSONANTS:
+                    replacement = {'я': 'ьа', 'ю': 'ьу', 'є': 'ье', 'ї': 'ьі'}[word[i]]
+                else:
+                    replacement = word[i]
+                new_word += replacement
+            else:
+                new_word += word[i]
+            i += 1
+        result.append(new_word)
+    
+    return ' '.join(result)
+
 # Функція для обробки тексту
 def process_text(text):
     # Приведення тексту до нижнього регістру
@@ -12,6 +45,8 @@ def process_text(text):
     # Видалення розділових знаків та цифр
     translator = str.maketrans("", "", string.punctuation + string.digits + "—" + "…" + "→")
     text = text.translate(translator)
+    # Заміна літер за правилами
+    text = replace_letters(text)
     return text
 
 # Перевіряємо, чи існує папка для збереження оброблених файлів, якщо ні - створюємо її
