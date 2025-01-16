@@ -166,8 +166,9 @@ def process_text_file(input_path, output_path):
                     processed_word = prefix + word + suffix
             else:
                 processed_word = prefix + suffix
-                
+            processed_word = processed_word.replace("ь", "").replace("Ь", "")
             processed_words.append(processed_word)
+            
         
         # Зберігаємо результат
         with open(output_path, 'w', encoding='utf-8') as file:

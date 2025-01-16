@@ -1,5 +1,6 @@
 import os
 import string
+import re
 
 # Шлях до папки з текстовими файлами
 INPUT_FOLDER = "texts"
@@ -25,6 +26,9 @@ def replace_letters(text):
                 # Після голосної чи апострофа
                 elif i > 0 and (word[i-1] in VOWELS or word[i-1] == "'"):
                     replacement = {'я': 'йа', 'ю': 'йу', 'є': 'йе', 'ї': 'йі'}[word[i]]
+                # Після апострофа
+                elif i > 0 and word[i-1] == "'":
+                    replacement = {'я': 'йа', 'ю': 'йу', 'є': 'йе', 'ї': 'йі'}[word[i]]
                 # Після приголосної
                 elif i > 0 and word[i-1] in CONSONANTS:
                     replacement = {'я': 'ьа', 'ю': 'ьу', 'є': 'ье', 'ї': 'ьі'}[word[i]]
@@ -34,6 +38,8 @@ def replace_letters(text):
             else:
                 new_word += word[i]
             i += 1
+        # Заміна "щ" на "шч"
+        new_word = new_word.replace("щ", "шч")
         result.append(new_word)
     
     return ' '.join(result)
@@ -42,11 +48,18 @@ def replace_letters(text):
 def process_text(text):
     # Приведення тексту до нижнього регістру
     text = text.lower()
+    text = replace_letters(text)
+    
     # Видалення розділових знаків та цифр
     translator = str.maketrans("", "", string.punctuation + string.digits + "—" + "…" + "→")
     text = text.translate(translator)
-    # Заміна літер за правилами
-    text = replace_letters(text)
+    
+    # Замінюємо зайві пробіли на один
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Видаляємо можливі пробіли на початку та в кінці
+    text = text.strip()
+
     return text
 
 # Перевіряємо, чи існує папка для збереження оброблених файлів, якщо ні - створюємо її
