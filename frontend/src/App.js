@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Container, Form, Button, Card, Row, Col, Spinner,
-  Table, Nav, Tab, Alert, ProgressBar
+  Table, Nav, Tab, Alert, ProgressBar, Modal
 } from 'react-bootstrap';
 import { 
   LineChart, Line, XAxis, YAxis, CartesianGrid, 
@@ -48,6 +48,12 @@ function App() {
   const [windowParams, setWindowParams] = useState(null);
   const [markovGraph, setMarkovGraph] = useState(null);
   const [processingProgress, setProcessingProgress] = useState(0);
+  
+  // New state variables for text preprocessing
+  const [doPreprocess, setDoPreprocess] = useState(false);
+  const [doSyllables, setDoSyllables] = useState(false);
+  const [preprocessedText, setPreprocessedText] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
 
   // Handle single file upload
   const handleFileUpload = (event) => {
@@ -110,6 +116,32 @@ function App() {
       setLoading(false);
     }
   };
+  
+  // Preview text processing
+  const handlePreviewText = async () => {
+    if (!fileContent) {
+      setError('Please upload a file first');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await axios.post(`${API_URL}/preprocess`, {
+        text: fileContent,
+        do_preprocess: doPreprocess,
+        do_syllables: doSyllables
+      });
+      
+      setPreprocessedText(response.data.processed_text);
+      setShowPreview(true);
+      setLoading(false);
+    } catch (err) {
+      setError('Preview processing failed: ' + (err.response?.data?.error || err.message));
+      setLoading(false);
+    }
+  };
 
   // Process corpus
   const processCorpus = async () => {
@@ -124,6 +156,10 @@ function App() {
       Object.keys(config).forEach(key => {
         formData.append(key, config[key]);
       });
+      
+      // Add preprocessing options
+      formData.append('do_preprocess', doPreprocess);
+      formData.append('do_syllables', doSyllables);
       
       if (zipFile) {
         // Upload as zip file
@@ -186,11 +222,13 @@ function App() {
         setLoading(true);
         setError(null);
         
-        // Make sure we're passing the min_type parameter
+        // Include preprocessing options in the request
         const response = await axios.post(`${API_URL}/analyze`, {
           text: fileContent,
           ...config,
-          min_type: parseInt(config.min_type, 10) // Ensure it's an integer
+          min_type: parseInt(config.min_type, 10),
+          do_preprocess: doPreprocess,
+          do_syllables: doSyllables
         });
         
         setAnalysisResult(response.data);
@@ -515,11 +553,50 @@ function App() {
                   </Form.Select>
                 </Form.Group>
 
+                <Form.Group className="mt-3">
+                  <Form.Label>Text Preprocessing:</Form.Label>
+                  <div>
+                    <Form.Check
+                      type="checkbox"
+                      label="Apply Ukrainian text preprocessing"
+                      id="do-preprocess"
+                      checked={doPreprocess}
+                      onChange={(e) => setDoPreprocess(e.target.checked)}
+                      className="mb-2"
+                    />
+                    <Form.Text className="text-muted mb-2" style={{ display: 'block' }}>
+                      Normalizes text: lowercase, replaces special Ukrainian letters with phonetic equivalents,
+                      removes punctuation and other non-letter characters.
+                    </Form.Text>
+                    
+                    <Form.Check
+                      type="checkbox"
+                      label="Split text into syllables"
+                      id="do-syllables"
+                      checked={doSyllables}
+                      onChange={(e) => setDoSyllables(e.target.checked)}
+                      className="mb-2"
+                    />
+                    <Form.Text className="text-muted mb-2" style={{ display: 'block' }}>
+                      Splits Ukrainian words into syllables based on phonetic rules.
+                    </Form.Text>
+                  </div>
+                  {analysisMode === 'single' && file && (doPreprocess || doSyllables) && (
+                    <Button 
+                      variant="outline-secondary" 
+                      size="sm"
+                      onClick={handlePreviewText}
+                      className="mt-2"
+                    >
+                      Preview processed text
+                    </Button>
+                  )}
+                </Form.Group>
+
                 <Button 
                   variant="primary" 
                   className="mt-3 me-2"
                   onClick={handleAnalyze}
-
                 >
                   {loading ? <Spinner size="sm" animation="border" /> : 'Analyze'}
                 </Button>
@@ -581,7 +658,7 @@ function App() {
                               >
                                 <td>{row.rank}</td>
                                 <td>{row.ngram}</td>
-                                <td>{row.ƒ}</td>
+                                <td>{row.F}</td>
                                 <td>{row.R}</td>
                                 <td>{row.a}</td>
                                 <td>{row.b}</td>
@@ -791,6 +868,33 @@ function App() {
           </Card>
         </Col>
       </Row>
+      
+      {/* Preview Modal */}
+      <Modal 
+        show={showPreview} 
+        onHide={() => setShowPreview(false)}
+        size="lg"
+        centered
+      >
+        <Modal.Header closeButton>
+          <Modal.Title>Processed Text Preview</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+            <p><strong>Original text length:</strong> {fileContent?.length || 0} characters</p>
+            <p><strong>Processed text length:</strong> {preprocessedText?.length || 0} characters</p>
+            <hr />
+            <div style={{ whiteSpace: 'pre-wrap' }}>
+              {preprocessedText || 'No preview available'}
+            </div>
+          </div>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowPreview(false)}>
+            Close
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </Container>
   );
 }

@@ -17,6 +17,7 @@ import tempfile
 import shutil
 import zipfile
 import io
+import string
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -28,6 +29,229 @@ model = None
 L = 0
 V = 0
 df = None
+
+# Ukrainian text processing globals
+VOWELS = set('аеєиіїоуюяёэы')
+CONSONANTS = set('бвгґджзйклмнпрстфхцчшщь')
+
+# Text preprocessing functions
+def replace_letters(text):
+    """Replace specific Ukrainian letters with phonetic equivalents"""
+    result = []
+    words = text.split()
+    
+    for word in words:
+        new_word = ''
+        i = 0
+        while i < len(word):
+            # Check current letter
+            if word[i] in 'яюєї':
+                if i > 0 and word[i-1] in CONSONANTS:
+                    replacement = {'я': 'ьа', 'ю': 'ьу', 'є': 'ье', 'ї': 'ьі'}[word[i]]
+                else:
+                    replacement = {'я': 'йа', 'ю': 'йу', 'є': 'йе', 'ї': 'йі'}[word[i]]
+                new_word += replacement
+            else:
+                new_word += word[i]
+            i += 1
+        # Replace "щ" with "шч"
+        new_word = new_word.replace("щ", "шч")
+        result.append(new_word)
+    
+    return ' '.join(result)
+
+def preprocess_text(text):
+    """Process text: lowercase, replace letters, remove punctuation and digits"""
+    # Convert to lowercase
+    text = text.lower()
+    # Replace special Ukrainian letters
+    text = replace_letters(text)
+    
+    # Replace hyphens and dashes with spaces
+    text = text.replace("-", " ")
+    text = text.replace("—", " ")
+    
+    # Remove punctuation and digits
+    translator = str.maketrans("", "", string.punctuation + string.digits + "…" + "→")
+    text = text.translate(translator)
+    
+    # Replace multiple spaces with a single space
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Remove leading and trailing spaces
+    text = text.strip()
+    
+    return text
+
+# Syllable splitting functions
+def is_vowel(char):
+    """Check if character is a Ukrainian vowel"""
+    vowels = 'аеєиіїоуюя'
+    return char.lower() in vowels
+
+def is_special_consonant_pair(text, index):
+    """Check if consonants at index form дж or дз"""
+    if index + 1 >= len(text):
+        return False
+    pair = text[index:index+2].lower()
+    return pair in ['дж', 'дз']
+
+def has_special_suffix(word, index):
+    """Check if word has special suffix starting at index"""
+    suffixes = ['ский', 'цкий', 'зкий']
+    for suffix in suffixes:
+        if index + len(suffix) <= len(word) and word[index:index+len(suffix)].lower() == suffix:
+            return len(suffix)
+    return 0
+
+def remove_soft_sign(word):
+    """Remove all soft signs (ь) from the word"""
+    return word.replace('ь', '')
+
+def should_keep_consonants_together(text, index):
+    """Check if consonants at index should stay in the same syllable"""
+    if index + 1 >= len(text):
+        return False
+    
+    consonant_group = ""
+    i = index
+    while i < len(text) and not is_vowel(text[i]):
+        consonant_group += text[i].lower()
+        i += 1
+        if len(consonant_group) >= 4:
+            break
+    
+    inseparable_pairs = [
+        'кл', 'шк', 'шн', 'дз', 'мй', 'кр', 'чк', 'зм', 'сн', 'гл', 'тл',
+        'вл', 'бл', 'см', 'сл', 'зн', 'бн', 'тн', 'хн', 'сп', 'ст', 'нт',
+        'бр', 'тр', 'шн', 'жн', 'хн', 'пл'
+    ]
+    
+    three_consonants = [
+        'стр', 'внт', 'шнь'
+    ]
+    
+    # Check three-letter combinations
+    if len(consonant_group) >= 3:
+        for group in three_consonants:
+            if consonant_group.startswith(group):
+                return True
+    
+    # Check all possible pairs
+    for i in range(len(consonant_group) - 1):
+        pair = consonant_group[i:i+2]
+        if pair in inseparable_pairs:
+            return True
+            
+    return False
+
+def split_into_syllables(word):
+    """Split a Ukrainian word into syllables"""
+    if not word:
+        return []
+    
+    word = remove_soft_sign(word)
+    syllables = []
+    current_syllable = ""
+    i = 0
+    
+    word = ''.join(c for c in word if c.isalpha() or c == "'")
+    
+    if not word:
+        return []
+    
+    while i < len(word):
+        if has_special_suffix(word, i) > 0:
+            if current_syllable:
+                syllables.append(current_syllable)
+            syllables.append(word[i:i+has_special_suffix(word, i)])
+            break
+            
+        while i < len(word) and not is_vowel(word[i]):
+            if i < len(word) - 1 and (is_special_consonant_pair(word, i) or should_keep_consonants_together(word, i)):
+                if current_syllable and any(is_vowel(c) for c in current_syllable):
+                    syllables.append(current_syllable)
+                    current_syllable = ""
+                if should_keep_consonants_together(word, i):
+                    group_end = i + 1
+                    while group_end < len(word) and not is_vowel(word[group_end]):
+                        if group_end + 1 < len(word) and should_keep_consonants_together(word, group_end):
+                            group_end += 1
+                        else:
+                            break
+                        group_end += 1
+                    current_syllable += word[i:group_end+1]
+                    i = group_end + 1
+                else:
+                    current_syllable += word[i:i+2]
+                    i += 2
+            else:
+                current_syllable += word[i]
+                i += 1
+        
+        if i < len(word):
+            current_syllable += word[i]
+            i += 1
+            
+            if i < len(word):
+                next_vowel = i
+                while next_vowel < len(word) and not is_vowel(word[next_vowel]):
+                    next_vowel += 1
+                
+                if next_vowel < len(word):
+                    consonants = word[i:next_vowel]
+                    if should_keep_consonants_together(word, i) or len(consonants) == 1:
+                        syllables.append(current_syllable)
+                        current_syllable = consonants
+                    else:
+                        mid = i + (len(consonants) // 2)
+                        current_syllable += word[i:mid]
+                        syllables.append(current_syllable)
+                        current_syllable = word[mid:next_vowel]
+                    i = next_vowel
+                    continue
+            
+            if current_syllable:
+                syllables.append(current_syllable)
+                current_syllable = ""
+    
+    if current_syllable:
+        if syllables and not any(is_vowel(c) for c in current_syllable):
+            syllables[-1] += current_syllable
+        else:
+            syllables.append(current_syllable)
+    
+    return syllables
+
+def split_text_into_syllables(text):
+    """Split all words in text into syllables"""
+    words = text.split()
+    result = []
+    
+    for word in words:
+        # Separate punctuation from the word
+        prefix = ''
+        suffix = ''
+        while word and not (word[0].isalpha() or word[0] == "'"):
+            prefix += word[0]
+            word = word[1:]
+        while word and not (word[-1].isalpha() or word[-1] == "'"):
+            suffix = word[-1] + suffix
+            word = word[:-1]
+        
+        # Split the word into syllables
+        if word:
+            syllables = split_into_syllables(word)
+            if syllables:
+                processed_word = prefix + ' '.join(syllables) + suffix
+            else:
+                processed_word = prefix + word + suffix
+        else:
+            processed_word = prefix + suffix
+            
+        result.append(processed_word)
+    
+    return ' '.join(result)
 
 def remove_punctuation_for_words(data):
     # Split the text into words using regular expression
@@ -250,112 +474,226 @@ def fit(x, a, b):
 
 
 def prepere_data(data, n, split):
+    """Prepare data for analysis based on n-gram size and split method"""
     global L
-    if n is None:
+    
+    # Check for invalid inputs
+    if data is None:
+        print("Error: data is None")
         return None
-    temp_data = []
-    if n == 1:
-        if split == "word":
-            temp = []
-            data = re.sub(r'\n+', '\n', data)
-            data = re.sub(r'\n\s\s', '\n', data)
-            data = re.sub(r'﻿', '', data)
-            data = re.sub(r'--', ' -', data)
-            processor = NgrammProcessor()
-            # обробка тексту
-            processor.preprocess(data)
-            # Отримання слів у тексті
-            data = processor.get_words()
-
-            for i in data:
-                temp.append(i)
-            L = len(temp)
-            return temp
-        if split == 'letter':
-            data = remove_punctuation(data)
-            for i in data:
-                for j in i:
-                    if is_valid_letter(j):
-                        continue
-                    temp_data.append(j)
-            L = len(temp_data)
-            return temp_data
-        if split == 'symbol':
-            data = re.sub(r'\n+', '\n', data)
-            data = re.sub(r'\n\s\s', '\n', data)
-            data = re.sub(r'﻿', '', data)
-            for i in data:
-                for j in i:
-                    if j == " ":
-                        temp_data.append("space")
-                        continue
-                    elif i == "\n":
-                        temp_data.append("space")
-                        continue
-                    elif i == "\ufeff":
-                        temp_data.append("space")
-                        continue
-                    j = j.lower()
-                    temp_data.append(j)
-            L = len(temp_data)
-            return temp_data
-    if n > 1:
-        if split == "word":
-            data = re.sub(r'\n+', '\n', data)
-            data = re.sub(r'\n\s\s', '\n', data)
-            data = re.sub(r'﻿', '', data)
-            data = re.sub(r'--', ' -', data)
-            processor = NgrammProcessor()
-            # обробка тексту
-            processor.preprocess(data)
-            # Отримання слів у тексті
-            data = processor.get_words()
-            L = len(data)
-            for i in range(L):
-                window = tuple(data[i: i + n])
-                temp_data.append(window)
-            return temp_data
-        if split == "letter":
-            data = remove_punctuation(data.split())
-            data = remove_empty_strings(data)
-            for i in data:
-                for j in i:
-                    if is_valid_letter(j):
-                        continue
-                    temp_data.append(j)
-            L = len(temp_data)
-            data = temp_data
-            temp_data = []
-            for i in range(L):
-                window = tuple(data[i: i + n])
-                temp_data.append(window)
-            return temp_data
-        if split == 'symbol':
-            temp_data = []
-            data = re.sub(r'\n+', '\n', data)
-            data = re.sub(r'\n\s\s', '\n', data)
-            data = re.sub(r'﻿', '', data)
-            for i in data:
-                for j in i:
-                    if j == " ":
-                        temp_data.append("space")
-                        continue
-                    elif i == "\n":
-                        temp_data.append("space")
-                        continue
-                    elif i == "\ufeff":
-                        temp_data.append("space")
-                        continue
-                    j = j.lower()
-                    temp_data.append(j)
-            data = temp_data
-            temp_data = []
-            L = len(data)
-            for i in range(L):
-                window = tuple(data[i:i + n])
-                temp_data.append(window)
-            return temp_data
-
+    
+    if not data:
+        print("Error: data is empty")
+        return None
+        
+    if n is None:
+        print("Error: n is None")
+        return None
+    
+    if n < 1:
+        print(f"Error: invalid n value: {n}")
+        return None
+    
+    if split not in ["word", "letter", "symbol"]:
+        print(f"Error: invalid split method: {split}")
+        return None
+    
+    try:
+        temp_data = []
+        
+        # Process data based on n and split method
+        if n == 1:
+            if split == "word":
+                try:
+                    temp = []
+                    data = re.sub(r'\n+', '\n', data)
+                    data = re.sub(r'\n\s\s', '\n', data)
+                    data = re.sub(r'﻿', '', data)
+                    data = re.sub(r'--', ' -', data)
+                    processor = NgrammProcessor()
+                    # Process text
+                    processor.preprocess(data)
+                    # Get words in text
+                    words = processor.get_words()
+                    
+                    if not words:
+                        print("Warning: NgrammProcessor returned empty words list")
+                        return None
+                    
+                    for i in words:
+                        temp.append(i)
+                    
+                    L = len(temp)
+                    if L == 0:
+                        print("Warning: processed word list is empty")
+                        return None
+                    
+                    return temp
+                except Exception as e:
+                    print(f"Error in word processing: {str(e)}")
+                    traceback.print_exc()
+                    return None
+                
+            elif split == 'letter':
+                try:
+                    processed_data = remove_punctuation(data)
+                    if not processed_data:
+                        print("Warning: remove_punctuation returned empty result")
+                        return None
+                    
+                    for i in processed_data:
+                        for j in i:
+                            if is_valid_letter(j):
+                                continue
+                            temp_data.append(j)
+                    
+                    L = len(temp_data)
+                    if L == 0:
+                        print("Warning: processed letter list is empty")
+                        return None
+                    
+                    return temp_data
+                except Exception as e:
+                    print(f"Error in letter processing: {str(e)}")
+                    traceback.print_exc()
+                    return None
+                
+            elif split == 'symbol':
+                try:
+                    data = re.sub(r'\n+', '\n', data)
+                    data = re.sub(r'\n\s\s', '\n', data)
+                    data = re.sub(r'﻿', '', data)
+                    
+                    for i in data:
+                        for j in i:
+                            if j == " ":
+                                temp_data.append("space")
+                                continue
+                            elif i == "\n":
+                                temp_data.append("space")
+                                continue
+                            elif i == "\ufeff":
+                                temp_data.append("space")
+                                continue
+                            j = j.lower()
+                            temp_data.append(j)
+                    
+                    L = len(temp_data)
+                    if L == 0:
+                        print("Warning: processed symbol list is empty")
+                        return None
+                    
+                    return temp_data
+                except Exception as e:
+                    print(f"Error in symbol processing: {str(e)}")
+                    traceback.print_exc()
+                    return None
+        
+        elif n > 1:
+            # Higher order n-grams
+            if split == "word":
+                try:
+                    data = re.sub(r'\n+', '\n', data)
+                    data = re.sub(r'\n\s\s', '\n', data)
+                    data = re.sub(r'﻿', '', data)
+                    data = re.sub(r'--', ' -', data)
+                    processor = NgrammProcessor()
+                    # Process text
+                    processor.preprocess(data)
+                    # Get words in text
+                    words = processor.get_words()
+                    
+                    if not words:
+                        print("Warning: NgrammProcessor returned empty words list for n>1")
+                        return None
+                    
+                    L = len(words)
+                    if L < n:
+                        print(f"Warning: text too short for n-gram size. Words: {L}, n: {n}")
+                        return None
+                    
+                    for i in range(L - n + 1):
+                        window = tuple(words[i:i + n])
+                        temp_data.append(window)
+                    
+                    return temp_data
+                except Exception as e:
+                    print(f"Error in word n-gram processing: {str(e)}")
+                    traceback.print_exc()
+                    return None
+                
+            elif split == "letter":
+                try:
+                    processed_data = remove_punctuation(data.split())
+                    processed_data = remove_empty_strings(processed_data)
+                    
+                    letter_data = []
+                    for i in processed_data:
+                        for j in i:
+                            if is_valid_letter(j):
+                                continue
+                            letter_data.append(j)
+                    
+                    L = len(letter_data)
+                    if L < n:
+                        print(f"Warning: text too short for n-gram size. Letters: {L}, n: {n}")
+                        return None
+                    
+                    for i in range(L - n + 1):
+                        window = tuple(letter_data[i:i + n])
+                        temp_data.append(window)
+                    
+                    return temp_data
+                except Exception as e:
+                    print(f"Error in letter n-gram processing: {str(e)}")
+                    traceback.print_exc()
+                    return None
+                
+            elif split == 'symbol':
+                try:
+                    symbol_data = []
+                    data = re.sub(r'\n+', '\n', data)
+                    data = re.sub(r'\n\s\s', '\n', data)
+                    data = re.sub(r'﻿', '', data)
+                    
+                    for i in data:
+                        for j in i:
+                            if j == " ":
+                                symbol_data.append("space")
+                                continue
+                            elif i == "\n":
+                                symbol_data.append("space")
+                                continue
+                            elif i == "\ufeff":
+                                symbol_data.append("space")
+                                continue
+                            j = j.lower()
+                            symbol_data.append(j)
+                    
+                    L = len(symbol_data)
+                    if L < n:
+                        print(f"Warning: text too short for n-gram size. Symbols: {L}, n: {n}")
+                        return None
+                    
+                    for i in range(L - n + 1):
+                        window = tuple(symbol_data[i:i + n])
+                        temp_data.append(window)
+                    
+                    return temp_data
+                except Exception as e:
+                    print(f"Error in symbol n-gram processing: {str(e)}")
+                    traceback.print_exc()
+                    return None
+        
+        # Return None for unsupported cases
+        print(f"Unsupported configuration: n={n}, split={split}")
+        return None
+    
+    except Exception as e:
+        print(f"Unexpected error in prepere_data: {str(e)}")
+        print(f"Parameters: n={n}, split={split}, data length={len(data) if data else 'None'}")
+        traceback.print_exc()
+        return None
 
 def dfa(data, args):
     wi, wh, l = args
@@ -448,25 +786,73 @@ def make_keys_serializable(data):
 
 def calculate_window_params(text, n_size, split):
     """Calculate window parameters based on text length"""
-    data = prepere_data(text, n_size, split)
-    if data:
-        wm = int(L / 20)
-        w = int(wm / 20)
-        return {
-            "w": w,  # Min window
-            "wh": w,  # Window shift
-            "we": w,  # Window expansion
-            "wm": wm,  # Max window
-            "length": L  # Text length
-        }
-    return None
+    global L  # Keep track of the global L variable since it's used throughout the code
+    
+    # Store the original value to detect changes
+    original_L = L
+    
+    try:
+        # Try to prepare the data and check if it's valid
+        data = prepere_data(text, n_size, split)
+        
+        if data is None:
+            print(f"Warning: prepere_data returned None for text of length {len(text)}, n_size={n_size}, split={split}")
+            return None
+        
+        if len(data) == 0:
+            print(f"Warning: prepere_data returned empty data for text of length {len(text)}, n_size={n_size}, split={split}")
+            return None
+        
+        # Verify that L was properly set by prepere_data
+        if L <= 0:
+            print(f"Warning: L was not set properly. L={L} after prepere_data")
+            return None
+        
+        # Calculate window parameters
+        try:
+            wm = int(L / 20)
+            if wm <= 0:
+                print(f"Warning: Calculated wm is zero or negative: wm={wm}, L={L}")
+                wm = 10  # Set a reasonable default
+                
+            w = int(wm / 20)
+            if w <= 0:
+                print(f"Warning: Calculated w is zero or negative: w={w}, wm={wm}, L={L}")
+                w = 1  # Set a reasonable default
+            
+            return {
+                "w": w,  # Min window
+                "wh": w,  # Window shift
+                "we": w,  # Window expansion
+                "wm": wm,  # Max window
+                "length": L  # Text length
+            }
+        except Exception as e:
+            print(f"Error calculating window parameters: {str(e)}")
+            print(f"Variables: L={L}, original L={original_L}")
+            return None
+        
+    except Exception as e:
+        print(f"Error in calculate_window_params: {str(e)}")
+        print(f"Input parameters: text length={len(text)}, n_size={n_size}, split={split}")
+        print(f"L value: {L}")
+        traceback.print_exc()
+        return None
 
-
-def analyze_text(file_text, n_size, split, condition, f_min, w, wh, we, wm, definition, min_type=1):
+def analyze_text(file_text, n_size, split, condition, f_min, w, wh, we, wm, definition, min_type=1, do_preprocess=False, do_syllables=False):
     """Core analysis function that processes text"""
     global data, L, V, model, df
     
     start_time = time()
+    
+    # Apply preprocessing if requested
+    if do_preprocess:
+        file_text = preprocess_text(file_text)
+        
+    # Split into syllables if requested
+    if do_syllables:
+        file_text = split_text_into_syllables(file_text)
+    
     data = prepere_data(file_text, n_size, split)
     
     if definition == "dynamic":
@@ -683,7 +1069,8 @@ def generate_markov_graph(n_size):
 
 
 # Corpus processing functionality
-def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmin_for_lmax, w, wh, we, wm, definition):
+def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmin_for_lmax, 
+                  w, wh, we, wm, definition, do_preprocess=False, do_syllables=False):
     """Process a corpus of text files and return aggregated results"""
     
     # Prepare storage for results
@@ -693,7 +1080,16 @@ def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmi
     
     # First pass: collect all file lengths to calculate appropriate F_min
     for file_name, file_content in files.items():
-        data = prepere_data(file_content, n_size, split)
+        # Apply preprocessing if requested
+        processed_content = file_content
+        if do_preprocess:
+            processed_content = preprocess_text(processed_content)
+        
+        # Split into syllables if requested
+        if do_syllables:
+            processed_content = split_text_into_syllables(processed_content)
+            
+        data = prepere_data(processed_content, n_size, split)
         if data:
             file_length = len(data)
             length_info.append({"file": file_name, "length": file_length})
@@ -721,13 +1117,22 @@ def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmi
         file_length = item["length"]
         file_content = files[file_name]
         
+        # Apply preprocessing if requested
+        processed_content = file_content
+        if do_preprocess:
+            processed_content = preprocess_text(processed_content)
+        
+        # Split into syllables if requested
+        if do_syllables:
+            processed_content = split_text_into_syllables(processed_content)
+        
         # Calculate F_min for this file
         f_min_for_this = fmin_for_lmin + slope * (file_length - Lmin_actual)
         f_min_for_this = round(f_min_for_this)
         
         # Start processing this file
         t0 = time()
-        data = prepere_data(file_content, n_size, split)
+        data = prepere_data(processed_content, n_size, split)
         
         if definition == "dynamic":
             # Dynamic analysis
@@ -935,20 +1340,77 @@ def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmi
 def api_calculate_windows():
     """Calculate window parameters based on text length"""
     try:
+        # Get request data
         data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data received in request", "context": "Request parsing"}), 400
+        
+        # Extract parameters
         text = data.get('text', '')
-        n_size = int(data.get('n_size', 1))
+        if not text:
+            return jsonify({"error": "Empty text provided. Please upload a valid text file", "context": "Input validation"}), 400
+        
+        try:
+            n_size = int(data.get('n_size', 1))
+            if n_size < 1:
+                return jsonify({"error": f"Invalid n_size value: {n_size}. Must be at least 1", "context": "Parameter validation"}), 400
+        except ValueError:
+            return jsonify({"error": f"n_size must be an integer, got: {data.get('n_size')}", "context": "Parameter conversion"}), 400
+        
         split = data.get('split', 'word')
+        if split not in ['word', 'letter', 'symbol']:
+            return jsonify({"error": f"Invalid split value: {split}. Must be 'word', 'letter', or 'symbol'", "context": "Parameter validation"}), 400
         
-        result = calculate_window_params(text, n_size, split)
-        
-        if result:
+        # Process the data through intermediate steps to track errors
+        try:
+            # First try to prepare data
+            prepared_data = prepere_data(text, n_size, split)
+            if not prepared_data:
+                return jsonify({
+                    "error": "Failed to prepare data for analysis", 
+                    "context": "prepere_data function",
+                    "details": f"Function returned None with parameters: n_size={n_size}, split={split}, text_length={len(text)}"
+                }), 400
+            
+            # Now calculate window parameters
+            result = calculate_window_params(text, n_size, split)
+            if not result:
+                return jsonify({
+                    "error": "Failed to calculate window parameters", 
+                    "context": "calculate_window_params function",
+                    "details": f"Data was prepared successfully (length: {len(prepared_data)}) but window calculation failed"
+                }), 400
+            
             return jsonify(result)
-        else:
-            return jsonify({"error": "Failed to calculate window parameters"}), 400
+        
+        except Exception as e:
+            # Handle specific data processing errors
+            error_location = "unknown"
+            if "prepere_data" in str(e):
+                error_location = "prepere_data function"
+            elif "L =" in str(e):
+                error_location = "global L variable assignment"
+            elif "calculate_window_params" in str(e):
+                error_location = "calculate_window_params function"
+            
+            return jsonify({
+                "error": f"Data processing error: {str(e)}", 
+                "context": error_location,
+                "trace": traceback.format_exc(),
+                "parameters": {
+                    "n_size": n_size,
+                    "split": split,
+                    "text_length": len(text)
+                }
+            }), 500
+    
     except Exception as e:
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
-
+        # Catch-all for any other errors
+        return jsonify({
+            "error": f"Unexpected error: {str(e)}", 
+            "context": "api_calculate_windows",
+            "trace": traceback.format_exc()
+        }), 500
 
 @app.route('/api/analyze', methods=['POST'])
 def api_analyze():
@@ -969,8 +1431,22 @@ def api_analyze():
         definition = data.get('definition', 'static')
         min_type = int(data.get('min_type', 1))
         
-        # Process the text
-        result = analyze_text(file_text, n_size, split, condition, f_min, w, wh, we, wm, definition, min_type)
+        # New preprocessing options
+        do_preprocess = data.get('do_preprocess', False)
+        do_syllables = data.get('do_syllables', False)
+        
+        # Process the text with new options
+        result = analyze_text(
+            file_text, n_size, split, condition, f_min, 
+            w, wh, we, wm, definition, min_type, 
+            do_preprocess, do_syllables
+        )
+        
+        # Add information about preprocessing to the result
+        result['preprocessing'] = {
+            'text_preprocessed': do_preprocess,
+            'text_syllabled': do_syllables
+        }
         
         return jsonify(result)
     except Exception as e:
@@ -994,6 +1470,10 @@ def api_markov_graph():
 def api_upload_corpus():
     """Handle corpus upload (either as a zip file or multiple individual files)"""
     try:
+        # Get preprocessing options from form data
+        do_preprocess = request.form.get('do_preprocess', 'false').lower() == 'true'
+        do_syllables = request.form.get('do_syllables', 'false').lower() == 'true'
+        
         if 'zip_file' in request.files:
             # Process zip file
             zip_file = request.files['zip_file']
@@ -1038,11 +1518,18 @@ def api_upload_corpus():
                 wm = int(request.form.get('wm', 100))
                 definition = request.form.get('definition', 'static')
                 
-                # Process corpus
+                # Process corpus with preprocessing options
                 result = process_corpus(
                     files, n_size, split, condition, min_type,
-                    fmin_for_lmin, fmin_for_lmax, w, wh, we, wm, definition
+                    fmin_for_lmin, fmin_for_lmax, w, wh, we, wm, definition,
+                    do_preprocess, do_syllables
                 )
+                
+                # Add preprocessing info to the result
+                result['preprocessing'] = {
+                    'text_preprocessed': do_preprocess,
+                    'text_syllabled': do_syllables
+                }
                 
                 return jsonify(result)
                 
@@ -1085,11 +1572,18 @@ def api_upload_corpus():
             
             print(f"Processing corpus with parameters: n_size={n_size}, split={split}, condition={condition}, min_type={min_type}")
             
-            # Process corpus
+            # Process corpus with preprocessing options
             result = process_corpus(
                 files, n_size, split, condition, min_type,
-                fmin_for_lmin, fmin_for_lmax, w, wh, we, wm, definition
+                fmin_for_lmin, fmin_for_lmax, w, wh, we, wm, definition,
+                do_preprocess, do_syllables
             )
+            
+            # Add preprocessing info to the result
+            result['preprocessing'] = {
+                'text_preprocessed': do_preprocess,
+                'text_syllabled': do_syllables
+            }
             
             return jsonify(result)
             
@@ -1139,6 +1633,35 @@ def api_get_ngram_data():
         }
         
         return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+
+
+@app.route('/api/preprocess', methods=['POST'])
+def api_preprocess():
+    """Preprocess text"""
+    try:
+        data = request.get_json()
+        text = data.get('text', '')
+        do_preprocess = data.get('do_preprocess', False)
+        do_syllables = data.get('do_syllables', False)
+        
+        result = text
+        
+        # Apply preprocessing if requested
+        if do_preprocess:
+            result = preprocess_text(result)
+            
+        # Split into syllables if requested
+        if do_syllables:
+            result = split_text_into_syllables(result)
+        
+
+        return jsonify({
+            "original_text": text,
+            "processed_text": result
+        })
+        
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
