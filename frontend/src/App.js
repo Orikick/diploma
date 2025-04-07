@@ -1,4 +1,4 @@
-// src/App.js
+// src/App.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -37,6 +37,7 @@ function App() {
   });
   const [analysisMode, setAnalysisMode] = useState('single'); // 'single' or 'corpus'
   const [corpusFiles, setCorpusFiles] = useState([]);
+  const [corpusFilesContent, setCorpusFilesContent] = useState({}); // Новий стан для зберігання вмісту файлів корпусу
   const [zipFile, setZipFile] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [corpusResult, setCorpusResult] = useState(null);
@@ -49,11 +50,41 @@ function App() {
   const [markovGraph, setMarkovGraph] = useState(null);
   const [processingProgress, setProcessingProgress] = useState(0);
   
-  // New state variables for text preprocessing
+  // Text preprocessing state variables
   const [doPreprocess, setDoPreprocess] = useState(false);
   const [doSyllables, setDoSyllables] = useState(false);
+  const [doCV, setDoCV] = useState(false);
   const [preprocessedText, setPreprocessedText] = useState('');
   const [showPreview, setShowPreview] = useState(false);
+
+  // Custom error alert component
+  const ErrorAlert = ({ error, onClose }) => {
+    // Check if error is a simple string or a multiline message
+    const hasMultipleLines = error && error.includes('\n');
+    
+    return (
+      <Alert variant="danger" onClose={onClose} dismissible>
+        {hasMultipleLines ? (
+          <div>
+            <strong>Error:</strong>
+            <pre className="mt-2 mb-0" style={{ 
+              whiteSpace: 'pre-wrap', 
+              backgroundColor: 'rgba(0,0,0,0.05)', 
+              padding: '8px', 
+              borderRadius: '4px',
+              fontSize: '0.9rem',
+              maxHeight: '200px',
+              overflowY: 'auto'
+            }}>
+              {error}
+            </pre>
+          </div>
+        ) : (
+          error
+        )}
+      </Alert>
+    );
+  };
 
   // Handle single file upload
   const handleFileUpload = (event) => {
@@ -74,6 +105,24 @@ function App() {
     const files = Array.from(event.target.files);
     setCorpusFiles(files);
     setAnalysisMode('corpus');
+    
+    // Зчитуємо вміст кожного файлу для подальшого використання
+    const fileContents = {};
+    let filesProcessed = 0;
+    
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        fileContents[file.name] = e.target.result;
+        filesProcessed++;
+        
+        // Коли всі файли зчитані, зберігаємо їх вміст
+        if (filesProcessed === files.length) {
+          setCorpusFilesContent(fileContents);
+        }
+      };
+      reader.readAsText(file);
+    });
     
     // For corpus, we can estimate window parameters based on the first file
     if (files.length > 0) {
@@ -96,6 +145,7 @@ function App() {
   const calculateWindowParams = async (text) => {
     try {
       setLoading(true);
+      setError(null);
       const response = await axios.post(`${API_URL}/calculate-windows`, {
         text: text,
         n_size: config.n_size,
@@ -112,8 +162,36 @@ function App() {
       }));
       setLoading(false);
     } catch (err) {
-      setError('Failed to calculate window parameters');
+      // Enhanced error handling
+      const errorData = err.response?.data;
+      let errorMessage = 'Failed to calculate window parameters';
+      
+      if (errorData) {
+        if (errorData.context && errorData.error) {
+          errorMessage = `${errorData.error} (Context: ${errorData.context})`;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+        
+        // Add details if available
+        if (errorData.details) {
+          errorMessage += `\nDetails: ${errorData.details}`;
+        }
+        
+        // Add parameter information if available
+        if (errorData.parameters) {
+          const params = errorData.parameters;
+          errorMessage += `\nParameters: n_size=${params.n_size}, split=${params.split}, text length=${params.text_length}`;
+        }
+      }
+      
+      setError(errorMessage);
       setLoading(false);
+      
+      // Log more details to console for debugging
+      if (errorData && errorData.trace) {
+        console.error('Server error trace:', errorData.trace);
+      }
     }
   };
   
@@ -131,14 +209,29 @@ function App() {
       const response = await axios.post(`${API_URL}/preprocess`, {
         text: fileContent,
         do_preprocess: doPreprocess,
-        do_syllables: doSyllables
+        do_syllables: doSyllables,
+        do_cv: doCV
       });
       
       setPreprocessedText(response.data.processed_text);
       setShowPreview(true);
       setLoading(false);
     } catch (err) {
-      setError('Preview processing failed: ' + (err.response?.data?.error || err.message));
+      // Enhanced error handling
+      const errorData = err.response?.data;
+      let errorMessage = 'Preview processing failed';
+      
+      if (errorData) {
+        if (errorData.context && errorData.error) {
+          errorMessage = `${errorData.error} (Context: ${errorData.context})`;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+      } else if (err.message) {
+        errorMessage += `: ${err.message}`;
+      }
+      
+      setError(errorMessage);
       setLoading(false);
     }
   };
@@ -160,6 +253,7 @@ function App() {
       // Add preprocessing options
       formData.append('do_preprocess', doPreprocess);
       formData.append('do_syllables', doSyllables);
+      formData.append('do_cv', doCV);
       
       if (zipFile) {
         // Upload as zip file
@@ -192,7 +286,21 @@ function App() {
       setProcessingProgress(100);
       
     } catch (err) {
-      setError('Corpus processing failed: ' + (err.response?.data?.error || err.message));
+      // Enhanced error handling
+      const errorData = err.response?.data;
+      let errorMessage = 'Corpus processing failed';
+      
+      if (errorData) {
+        if (errorData.context && errorData.error) {
+          errorMessage = `${errorData.error} (Context: ${errorData.context})`;
+        } else if (errorData.error) {
+          errorMessage = errorData.error;
+        }
+      } else if (err.message) {
+        errorMessage += `: ${err.message}`;
+      }
+      
+      setError(errorMessage);
       setLoading(false);
     }
   };
@@ -228,7 +336,8 @@ function App() {
           ...config,
           min_type: parseInt(config.min_type, 10),
           do_preprocess: doPreprocess,
-          do_syllables: doSyllables
+          do_syllables: doSyllables,
+          do_cv: doCV
         });
         
         setAnalysisResult(response.data);
@@ -239,8 +348,32 @@ function App() {
           getMarkovGraph();
         }
       } catch (err) {
-        setError('Analysis failed: ' + (err.response?.data?.error || err.message));
+        // Enhanced error handling
+        const errorData = err.response?.data;
+        let errorMessage = 'Analysis failed';
+        
+        if (errorData) {
+          if (errorData.context && errorData.error) {
+            errorMessage = `${errorData.error} (Context: ${errorData.context})`;
+          } else if (errorData.error) {
+            errorMessage = errorData.error;
+          }
+          
+          // Add details if available
+          if (errorData.details) {
+            errorMessage += `\nDetails: ${errorData.details}`;
+          }
+        } else if (err.message) {
+          errorMessage += `: ${err.message}`;
+        }
+        
+        setError(errorMessage);
         setLoading(false);
+        
+        // Log more details to console for debugging
+        if (errorData && errorData.trace) {
+          console.error('Server error trace:', errorData.trace);
+        }
       }
     } else {
       // Corpus mode
@@ -279,6 +412,88 @@ function App() {
   // Handle ngram selection
   const handleNgramSelect = async (ngram) => {
     setSelectedNgram(ngram);
+  };
+
+  // Нова функція для обробки кліку по рядку в таблиці результатів корпусного аналізу
+  const handleCorpusRowClick = async (fileName) => {
+    // Знаходимо вміст файлу
+    let content = null;
+    
+    // Перевіряємо, чи маємо вже вміст файлу в стані
+    if (corpusFilesContent[fileName]) {
+      content = corpusFilesContent[fileName];
+    } else {
+      // Якщо вміст файлу ще не збережено, перевіряємо corpusFiles
+      const fileObj = corpusFiles.find(f => f.name === fileName);
+      
+      if (fileObj) {
+        // Зчитуємо вміст файлу
+        content = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.readAsText(fileObj);
+        });
+      } else {
+        setError(`Не вдалося знайти файл ${fileName} для аналізу`);
+        return;
+      }
+    }
+    
+    // Переходимо до режиму аналізу одиночного файлу
+    setAnalysisMode('single');
+    
+    // Створюємо об'єкт File, якщо файл не було знайдено у corpusFiles
+    let fileObj = corpusFiles.find(f => f.name === fileName);
+    if (!fileObj) {
+      fileObj = new File([content], fileName, { type: 'text/plain' });
+    }
+    
+    // Зберігаємо файл та його вміст
+    setFile(fileObj);
+    setFileContent(content);
+    
+    // Скидаємо результати попереднього аналізу
+    setAnalysisResult(null);
+    setSelectedNgram(null);
+    setMarkovGraph(null);
+    
+    // Розраховуємо параметри вікна для нового файлу
+    await calculateWindowParams(content);
+    
+    // Автоматичний аналіз файлу
+    try {
+      setLoading(true);
+      
+      const response = await axios.post(`${API_URL}/analyze`, {
+        text: content,
+        ...config,
+        min_type: parseInt(config.min_type, 10),
+        do_preprocess: doPreprocess,
+        do_syllables: doSyllables,
+        do_cv: doCV
+      });
+      
+      setAnalysisResult(response.data);
+      
+      // Get Markov graph data if in static mode
+      if (config.definition === 'static') {
+        await getMarkovGraph();
+      }
+      
+      setLoading(false);
+    } catch (err) {
+      const errorData = err.response?.data;
+      let errorMessage = 'Analysis failed';
+      
+      if (errorData && errorData.error) {
+        errorMessage = errorData.error;
+      } else if (err.message) {
+        errorMessage += `: ${err.message}`;
+      }
+      
+      setError(errorMessage);
+      setLoading(false);
+    }
   };
 
   // Get data for distribution graph
@@ -323,11 +538,7 @@ function App() {
 
   return (
     <Container fluid>
-      {error && (
-        <Alert variant="danger" onClose={() => setError(null)} dismissible>
-          {error}
-        </Alert>
-      )}
+      {error && <ErrorAlert error={error} onClose={() => setError(null)} />}
       
       <Row className="mb-3">
         <Col md={3}>
@@ -580,8 +791,21 @@ function App() {
                     <Form.Text className="text-muted mb-2" style={{ display: 'block' }}>
                       Splits Ukrainian words into syllables based on phonetic rules.
                     </Form.Text>
+                    
+                    <Form.Check
+                      type="checkbox"
+                      label="Convert to Consonant-Vowel (CV) sequences"
+                      id="do-cv"
+                      checked={doCV}
+                      onChange={(e) => setDoCV(e.target.checked)}
+                      className="mb-2"
+                    />
+                    <Form.Text className="text-muted mb-2" style={{ display: 'block' }}>
+                      Converts Ukrainian text to CV sequences: vowels become 'v', consonants become 'c'.
+                      For example, "привіт" becomes "ccvcvc".
+                    </Form.Text>
                   </div>
-                  {analysisMode === 'single' && file && (doPreprocess || doSyllables) && (
+                  {analysisMode === 'single' && file && (doPreprocess || doSyllables || doCV) && (
                     <Button 
                       variant="outline-secondary" 
                       size="sm"
@@ -597,6 +821,7 @@ function App() {
                   variant="primary" 
                   className="mt-3 me-2"
                   onClick={handleAnalyze}
+                  disabled={loading}
                 >
                   {loading ? <Spinner size="sm" animation="border" /> : 'Analyze'}
                 </Button>
@@ -642,7 +867,7 @@ function App() {
                             <tr>
                               <th>Rank</th>
                               <th>Ngram</th>
-                              <th>ƒ</th>
+                              <th>F</th>
                               <th>R</th>
                               <th>a</th>
                               <th>b</th>
@@ -705,7 +930,13 @@ function App() {
                         </thead>
                         <tbody>
                           {corpusResult.corpus_results.map((row, index) => (
-                            <tr key={index}>
+                            <tr 
+                              key={index}
+                              onClick={() => handleCorpusRowClick(row.file)}
+                              className="cursor-pointer"
+                              style={{ cursor: 'pointer' }}
+                              title={`Клікніть для детального аналізу файлу ${row.file}`}
+                            >
                               <td>{row['№']}</td>
                               <td>{row.file}</td>
                               <td>{row.F_min}</td>
@@ -735,12 +966,30 @@ function App() {
                   <Col>Length: {analysisResult.length}</Col>
                   <Col>Vocabulary: {analysisResult.vocabulary}</Col>
                   <Col>Time: {analysisResult.time}s</Col>
+                  {analysisResult.preprocessing && (
+                    <Col>
+                      Preprocessing: {[
+                        analysisResult.preprocessing.text_preprocessed ? "Text normalization" : "",
+                        analysisResult.preprocessing.text_syllabled ? "Syllable splitting" : "",
+                        analysisResult.preprocessing.text_cv_converted ? "CV conversion" : ""
+                      ].filter(Boolean).join(", ") || "None"}
+                    </Col>
+                  )}
                 </Row>
               )}
               {analysisMode === 'corpus' && corpusResult && (
                 <Row>
                   <Col>Files processed: {corpusResult.file_count}</Col>
                   <Col>Total time: {corpusResult.total_time}s</Col>
+                  {corpusResult.preprocessing && (
+                    <Col>
+                      Preprocessing: {[
+                        corpusResult.preprocessing.text_preprocessed ? "Text normalization" : "",
+                        corpusResult.preprocessing.text_syllabled ? "Syllable splitting" : "",
+                        corpusResult.preprocessing.text_cv_converted ? "CV conversion" : ""
+                      ].filter(Boolean).join(", ") || "None"}
+                    </Col>
+                  )}
                 </Row>
               )}
             </Card.Footer>
@@ -883,6 +1132,13 @@ function App() {
           <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
             <p><strong>Original text length:</strong> {fileContent?.length || 0} characters</p>
             <p><strong>Processed text length:</strong> {preprocessedText?.length || 0} characters</p>
+            <p>
+              <strong>Applied processing:</strong> {[
+                doPreprocess ? "Text normalization" : "",
+                doSyllables ? "Syllable splitting" : "",
+                doCV ? "CV conversion" : ""
+              ].filter(Boolean).join(", ")}
+            </p>
             <hr />
             <div style={{ whiteSpace: 'pre-wrap' }}>
               {preprocessedText || 'No preview available'}
@@ -900,3 +1156,4 @@ function App() {
 }
 
 export default App;
+
