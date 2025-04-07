@@ -33,6 +33,7 @@ df = None
 # Ukrainian text processing globals
 VOWELS = set('аеєиіїоуюяёэы')
 CONSONANTS = set('бвгґджзйклмнпрстфхцчшщь')
+VOWELS_CV = set("аеєиіїоуюяАЕЄИІЇОУЮЯ")
 
 # Text preprocessing functions
 def replace_letters(text):
@@ -252,6 +253,30 @@ def split_text_into_syllables(text):
         result.append(processed_word)
     
     return ' '.join(result)
+
+def convert_to_cv(text):
+    """Convert text to Consonant-Vowel (CV) sequence representation
+    
+    This function replaces vowels with 'v' and consonants with 'c', 
+    while keeping other characters (spaces, punctuation) unchanged.
+    """
+    if not text:
+        return ""
+    
+    # Remove soft signs
+    text = text.replace("ь", "").replace("Ь", "")
+    
+    # Convert characters to CV representation
+    result = []
+    for char in text:
+        if char in VOWELS_CV:
+            result.append("v")
+        elif re.match(r"[\u0410-\u044f]", char):  # Cyrillic letters range
+            result.append("c")
+        else:
+            result.append(char)  # Keep non-letter characters as they are
+    
+    return "".join(result)
 
 def remove_punctuation_for_words(data):
     # Split the text into words using regular expression
@@ -700,6 +725,7 @@ def prepere_data(data, n, split):
         traceback.print_exc()
         return None
 
+
 def dfa(data, args):
     wi, wh, l = args
     count = np.empty(len(range(wi, l, wh)), dtype=np.uint8)
@@ -844,7 +870,9 @@ def calculate_window_params(text, n_size, split):
         traceback.print_exc()
         return None
 
-def analyze_text(file_text, n_size, split, condition, f_min, w, wh, we, wm, definition, min_type=1, do_preprocess=False, do_syllables=False):
+
+def analyze_text(file_text, n_size, split, condition, f_min, w, wh, we, wm, definition, 
+                min_type=1, do_preprocess=False, do_syllables=False, do_cv=False):
     """Core analysis function that processes text"""
     global data, L, V, model, df
     
@@ -857,6 +885,10 @@ def analyze_text(file_text, n_size, split, condition, f_min, w, wh, we, wm, defi
     # Split into syllables if requested
     if do_syllables:
         file_text = split_text_into_syllables(file_text)
+        
+    # Convert to CV sequence if requested
+    if do_cv:
+        file_text = convert_to_cv(file_text)
     
     data = prepere_data(file_text, n_size, split)
     
@@ -1075,7 +1107,7 @@ def generate_markov_graph(n_size):
 
 # Corpus processing functionality
 def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmin_for_lmax, 
-                  w, wh, we, wm, definition, do_preprocess=False, do_syllables=False):
+                  w, wh, we, wm, definition, do_preprocess=False, do_syllables=False, do_cv=False):
     """Process a corpus of text files and return aggregated results"""
     
     # Prepare storage for results
@@ -1093,6 +1125,10 @@ def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmi
         # Split into syllables if requested
         if do_syllables:
             processed_content = split_text_into_syllables(processed_content)
+            
+        # Convert to CV sequence if requested
+        if do_cv:
+            processed_content = convert_to_cv(processed_content)
             
         data = prepere_data(processed_content, n_size, split)
         if data:
@@ -1130,6 +1166,10 @@ def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmi
         # Split into syllables if requested
         if do_syllables:
             processed_content = split_text_into_syllables(processed_content)
+            
+        # Convert to CV sequence if requested
+        if do_cv:
+            processed_content = convert_to_cv(processed_content)
         
         # Calculate F_min for this file
         f_min_for_this = fmin_for_lmin + slope * (file_length - Lmin_actual)
@@ -1417,6 +1457,7 @@ def api_calculate_windows():
             "trace": traceback.format_exc()
         }), 500
 
+
 @app.route('/api/analyze', methods=['POST'])
 def api_analyze():
     """Analyze text with the specified parameters"""
@@ -1436,26 +1477,32 @@ def api_analyze():
         definition = data.get('definition', 'static')
         min_type = int(data.get('min_type', 1))
         
-        # New preprocessing options
+        # Preprocessing options
         do_preprocess = data.get('do_preprocess', False)
         do_syllables = data.get('do_syllables', False)
+        do_cv = data.get('do_cv', False)  # CV parameter
         
         # Process the text with new options
         result = analyze_text(
             file_text, n_size, split, condition, f_min, 
             w, wh, we, wm, definition, min_type, 
-            do_preprocess, do_syllables
+            do_preprocess, do_syllables, do_cv
         )
         
         # Add information about preprocessing to the result
         result['preprocessing'] = {
             'text_preprocessed': do_preprocess,
-            'text_syllabled': do_syllables
+            'text_syllabled': do_syllables,
+            'text_cv_converted': do_cv
         }
         
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+        return jsonify({
+            "error": str(e), 
+            "trace": traceback.format_exc(),
+            "context": "Text analysis API"
+        }), 500
 
 
 @app.route('/api/markov-graph', methods=['POST'])
@@ -1478,6 +1525,7 @@ def api_upload_corpus():
         # Get preprocessing options from form data
         do_preprocess = request.form.get('do_preprocess', 'false').lower() == 'true'
         do_syllables = request.form.get('do_syllables', 'false').lower() == 'true'
+        do_cv = request.form.get('do_cv', 'false').lower() == 'true'  # CV parameter
         
         if 'zip_file' in request.files:
             # Process zip file
@@ -1527,13 +1575,14 @@ def api_upload_corpus():
                 result = process_corpus(
                     files, n_size, split, condition, min_type,
                     fmin_for_lmin, fmin_for_lmax, w, wh, we, wm, definition,
-                    do_preprocess, do_syllables
+                    do_preprocess, do_syllables, do_cv
                 )
                 
                 # Add preprocessing info to the result
                 result['preprocessing'] = {
                     'text_preprocessed': do_preprocess,
-                    'text_syllabled': do_syllables
+                    'text_syllabled': do_syllables,
+                    'text_cv_converted': do_cv
                 }
                 
                 return jsonify(result)
@@ -1581,13 +1630,14 @@ def api_upload_corpus():
             result = process_corpus(
                 files, n_size, split, condition, min_type,
                 fmin_for_lmin, fmin_for_lmax, w, wh, we, wm, definition,
-                do_preprocess, do_syllables
+                do_preprocess, do_syllables, do_cv
             )
             
             # Add preprocessing info to the result
             result['preprocessing'] = {
                 'text_preprocessed': do_preprocess,
-                'text_syllabled': do_syllables
+                'text_syllabled': do_syllables,
+                'text_cv_converted': do_cv
             }
             
             return jsonify(result)
@@ -1650,6 +1700,7 @@ def api_preprocess():
         text = data.get('text', '')
         do_preprocess = data.get('do_preprocess', False)
         do_syllables = data.get('do_syllables', False)
+        do_cv = data.get('do_cv', False)  # New parameter for CV conversion
         
         result = text
         
@@ -1660,15 +1711,22 @@ def api_preprocess():
         # Split into syllables if requested
         if do_syllables:
             result = split_text_into_syllables(result)
+            
+        # Convert to CV sequence if requested
+        if do_cv:
+            result = convert_to_cv(result)
         
-
         return jsonify({
             "original_text": text,
             "processed_text": result
         })
         
     except Exception as e:
-        return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
+        return jsonify({
+            "error": str(e), 
+            "trace": traceback.format_exc(),
+            "context": "Text preprocessing API"
+        }), 500
 
 
 if __name__ == "__main__":
