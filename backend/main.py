@@ -420,11 +420,16 @@ def obc(positions, L, min_type):
 def pbc(positions, L, ngram, min_type):
     number_of_pos = len(positions)
     dt = np.zeros(number_of_pos, dtype=np.uint32)
+
+    min_corr = 1
+
+    if min_type==1:
+        min_corr = 1
     
     for i in range(number_of_pos - 1):
-        dt[i] = (positions[i + 1] - positions[i]) + min_type
+        dt[i] = (positions[i + 1] - positions[i]) - min_corr
     
-    dt[-1] = (L - positions[-1] + positions[0]) + min_type
+    dt[-1] = (L - positions[-1] + positions[0]) - min_corr
     return dt
 
 
