@@ -422,22 +422,27 @@ def nbc(positions, min_type):
     if number_of_pos <= 1:
         return positions
     
+    min_corr = 1 if min_type == 0 else 0
+    
     dt = np.empty(number_of_pos - 1, dtype=np.uint32)
     for i in range(number_of_pos - 1):
-        dt[i] = (positions[i + 1] - positions[i]) + min_type
+        dt[i] = (positions[i + 1] - positions[i]) - min_corr
     return dt
 
 
 @jit(nopython=True)
 def obc(positions, L, min_type):
     number_of_pos = len(positions)
+    
+    min_corr = 1 if min_type == 0 else 0
+    
     dt = np.empty(number_of_pos + 1, dtype=np.uint32)
-    dt[0] = positions[0] + min_type
+    dt[0] = positions[0] - min_corr
     
     for i in range(number_of_pos - 1):
-        dt[i + 1] = (positions[i + 1] - positions[i]) + min_type
+        dt[i + 1] = (positions[i + 1] - positions[i]) - min_corr
     
-    dt[-1] = (L - positions[-1]) + min_type
+    dt[-1] = (L - positions[-1]) - min_corr
     return dt
 
 
