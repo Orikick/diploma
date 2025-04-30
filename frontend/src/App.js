@@ -998,7 +998,7 @@ function App() {
       </Row>
       
       <Row>
-        <Col md={6}>
+        <Col md={12}>
           <Card>
             <Card.Header>Distribution</Card.Header>
             <Card.Body style={{ height: '400px' }}>
@@ -1019,103 +1019,7 @@ function App() {
           </Card>
         </Col>
         
-        <Col md={6}>
-          <Card>
-            <Card.Header>
-              <div className="d-flex justify-content-between align-items-center">
-                <div>Fluctuation Analysis</div>
-                <Form.Group>
-                  <Form.Select 
-                    size="sm" 
-                    value={graphScale}
-                    onChange={(e) => setGraphScale(e.target.value)}
-                  >
-                    <option value="linear">linear</option>
-                    <option value="log">log</option>
-                  </Form.Select>
-                </Form.Group>
-              </div>
-            </Card.Header>
-            <Card.Body style={{ height: '400px' }}>
-              <Tab.Container defaultActiveKey="fluctuation">
-                <Row>
-                  <Col sm={12}>
-                    <Nav variant="tabs">
-                      <Nav.Item>
-                        <Nav.Link eventKey="fluctuation">Fluctuation</Nav.Link>
-                      </Nav.Item>
-                      <Nav.Item>
-                        <Nav.Link eventKey="ralpha">R / Alpha</Nav.Link>
-                      </Nav.Item>
-                    </Nav>
-                  </Col>
-                  <Col sm={12}>
-                    <Tab.Content>
-                      <Tab.Pane eventKey="fluctuation">
-                        {selectedNgram && (
-                          <ResponsiveContainer width="100%" height="350px">
-                            <LineChart data={getFluctuationData()}>
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis 
-                                dataKey="window" 
-                                scale={graphScale}
-                                domain={graphScale === 'log' ? ['auto', 'auto'] : [0, 'auto']}
-                              />
-                              <YAxis 
-                                scale={graphScale}
-                                domain={graphScale === 'log' ? ['auto', 'auto'] : [0, 'auto']}
-                              />
-                              <Tooltip />
-                              <Legend />
-                              <Line type="scatter" dataKey="value" stroke="#8884d8" name="ΔF" />
-                              <Line type="line" dataKey="fit" stroke="#82ca9d" name="fit" />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        )}
-                        {!selectedNgram && <div className="text-center mt-5">Select an ngram to view fluctuation</div>}
-                      </Tab.Pane>
-                      <Tab.Pane eventKey="ralpha">
-                        {analysisResult && (
-                          <ResponsiveContainer width="100%" height="350px">
-                            <ScatterChart>
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis 
-                                type="number" 
-                                dataKey="R" 
-                                name="R"
-                                scale={graphScale}
-                                domain={graphScale === 'log' ? ['auto', 'auto'] : [0, 'auto']}
-                              />
-                              <YAxis 
-                                type="number" 
-                                dataKey="b" 
-                                name="Alpha"
-                                scale={graphScale}
-                                domain={graphScale === 'log' ? ['auto', 'auto'] : [0, 'auto']}
-                              />
-                              <Tooltip cursor={{ strokeDasharray: '3 3' }} />
-                              <Scatter 
-                                name="Ngrams" 
-                                data={getRAlphaData().filter(d => !d.selected)} 
-                                fill="#8884d8"
-                              />
-                              <Scatter 
-                                name="Selected" 
-                                data={getRAlphaData().filter(d => d.selected)} 
-                                fill="#ff7300"
-                              />
-                            </ScatterChart>
-                          </ResponsiveContainer>
-                        )}
-                        {!analysisResult && <div className="text-center mt-5">Analyze text to view R/Alpha plot</div>}
-                      </Tab.Pane>
-                    </Tab.Content>
-                  </Col>
-                </Row>
-              </Tab.Container>
-            </Card.Body>
-          </Card>
-        </Col>
+        
       </Row>
       
       {/* Preview Modal */}
