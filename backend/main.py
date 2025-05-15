@@ -342,9 +342,20 @@ def make_dataframe(model, fmin=0):
         data["ngram"].append(ngram)
 
         if ngram == "new_ngram":
-            data['F'][i] = sum(model[ngram].bool)
+            data['F'][i] = sum(model[ngram].bool) if hasattr(model[ngram], "bool") else 0
             continue
-        data["F"][i] = len(model[ngram].pos)
+            
+        # Check if model[ngram] has a 'pos' attribute, if not, handle the error
+        try:
+            if hasattr(model[ngram], 'pos'):
+                data["F"][i] = len(model[ngram].pos)
+            else:
+                # If model[ngram] is a dictionary without 'pos', try to get count another way
+                data["F"][i] = sum(1 for _ in range(L) if model[ngram].get('bool', np.zeros(L, dtype=np.uint8))[_])
+        except Exception as e:
+            print(f"Error processing ngram {ngram}: {str(e)}")
+            # Set a default value
+            data["F"][i] = 0
 
     df = pd.DataFrame(data=data)
     return df
@@ -357,55 +368,106 @@ def make_markov_chain(data, order=1):
     model['new_ngram'] = Ngram()
     model['new_ngram'].bool = np.zeros(L, dtype=np.uint8)
     model['new_ngram'].pos = []
-    if order > 1:
-        for i in range(L - 1):
-            window = tuple(data[i: i + order])
-            if window in model:
-                model[window].update([data[i + order]])
-                model[window].pos.append(i + 1)
-                model[window].bool[i] = 1
-            else:
-                model[window] = Ngram([data[i + order]])
-                model[window].pos = []
-                model[window].pos.append(i + 1)
-                model[window].bool = np.zeros(L, dtype=np.uint8)
-                model[window].bool[i] = 1
-                model['new_ngram'].bool[i] = 1
-                model['new_ngram'].pos.append(i + 1)
-    else:
-        for i in range(L):
-            if data[i] in model:
-                model[data[i]].update([data[i + order]])
-                model[data[i]].pos.append(i + order)
-                try:
+    
+    try:
+        if order > 1:
+            for i in range(L - 1):
+                window = tuple(data[i: i + order])
+                if window in model:
+                    model[window].update([data[i + order]])
+                    model[window].pos.append(i + 1)
+                    model[window].bool[i] = 1
+                else:
+                    model[window] = Ngram([data[i + order]])
+                    model[window].pos = []
+                    model[window].pos.append(i + 1)
+                    model[window].bool = np.zeros(L, dtype=np.uint8)
+                    model[window].bool[i] = 1
+                    model['new_ngram'].bool[i] = 1
+                    model['new_ngram'].pos.append(i + 1)
+        else:
+            for i in range(L):
+                if data[i] in model:
+                    model[data[i]].update([data[i + order]])
+                    model[data[i]].pos.append(i + order)
+                    try:
+                        model[data[i]].bool[i] = 1
+                    except Exception:
+                        print('Adding bool attribute to ngram')
+                        model[data[i]].bool = np.zeros(L, dtype=np.uint8)
+                        model[data[i]].bool[i] = 1
+                else:
+                    model[data[i]] = Ngram([data[i + order]])
+                    model[data[i]].pos = []
+                    model[data[i]].pos.append(i + order)
+                    model[data[i]].bool = np.zeros(L, dtype=np.uint8)
                     model[data[i]].bool[i] = 1
-                except Exception:
-                    print('Wait for symbol calculation')
-            else:
-                model[data[i]] = Ngram([data[i + order]])
-                model[data[i]].pos = []
-                model[data[i]].pos.append(i + order)
-                model[data[i]].bool = np.zeros(L, dtype=np.uint8)
-                model[data[i]].bool[i] = 1
 
-                model['new_ngram'].bool[i] = 1
-                model['new_ngram'].pos.append(i + order)
+                    model['new_ngram'].bool[i] = 1
+                    model['new_ngram'].pos.append(i + order)
 
             # Connect the last word with the first one
-        if data[L] in model:
-            model[data[L]].update({data[0]: 1})
-        else:
-            model[data[L]] = {data[0]: 1}
+            if data[L] in model:
+                if not hasattr(model[data[L]], 'update'):
+                    # Convert to Ngram object if it's a plain dictionary
+                    old_dict = model[data[L]]
+                    model[data[L]] = Ngram()
+                    for k, v in old_dict.items():
+                        model[data[L]][k] = v
+                model[data[L]].update({data[0]: 1})
+            else:
+                model[data[L]] = Ngram({data[0]: 1})
+                model[data[L]].pos = []
+                model[data[L]].bool = np.zeros(L, dtype=np.uint8)
 
             # Connect the first word with the last one
-        if data[0] in model:
-            model[data[0]].update({data[L]: 1})
-        else:
-            model[data[0]] = {data[L]: 1}
+            if data[0] in model:
+                if not hasattr(model[data[0]], 'update'):
+                    # Convert to Ngram object if it's a plain dictionary
+                    old_dict = model[data[0]]
+                    model[data[0]] = Ngram()
+                    for k, v in old_dict.items():
+                        model[data[0]][k] = v
+                model[data[0]].update({data[L]: 1})
+            else:
+                model[data[0]] = Ngram({data[L]: 1})
+                model[data[0]].pos = []
+                model[data[0]].bool = np.zeros(L, dtype=np.uint8)
+    except Exception as e:
+        print(f"Error in make_markov_chain: {str(e)}")
+        traceback.print_exc()
+    
+    # Ensure all model elements are Ngram objects with required attributes
+    for key in list(model.keys()):
+        if not isinstance(model[key], Ngram):
+            print(f"Converting {key} to Ngram object")
+            temp = model[key]
+            model[key] = Ngram()
+            if isinstance(temp, dict):
+                for k, v in temp.items():
+                    model[key][k] = v
+            
+        # Ensure all required attributes exist
+        if not hasattr(model[key], 'pos'):
+            model[key].pos = []
+        if not hasattr(model[key], 'bool'):
+            model[key].bool = np.zeros(L, dtype=np.uint8)
+    
     V = len(model)
 
 
 def calculate_distance(positions, L, option, ngram, min_type=1):
+    # Make sure positions is always uint32 to maintain type consistency
+    positions = np.array(positions, dtype=np.uint32)
+    
+    # If positions is empty, return an empty array of uint32
+    if len(positions) == 0:
+        return np.empty(0, dtype=np.uint32)
+        
+    # Ensure we have valid L
+    if L <= 0:
+        L = 1  # Set a minimum valid L
+    
     if option == "no":
         return nbc(positions, min_type)
     if option == "ordinary":
@@ -420,7 +482,10 @@ def calculate_distance(positions, L, option, ngram, min_type=1):
 def nbc(positions, min_type):
     number_of_pos = len(positions)
     if number_of_pos <= 1:
-        return positions
+        # Create a new empty array of uint32 type instead of returning positions directly
+        # This ensures consistent return type
+        result = np.empty(0, dtype=np.uint32)
+        return result
     
     min_corr = 1 if min_type == 0 else 0
     
@@ -433,6 +498,10 @@ def nbc(positions, min_type):
 @jit(nopython=True)
 def obc(positions, L, min_type):
     number_of_pos = len(positions)
+    
+    # Handle edge case
+    if number_of_pos == 0:
+        return np.empty(0, dtype=np.uint32)
     
     min_corr = 1 if min_type == 0 else 0
     
@@ -449,19 +518,20 @@ def obc(positions, L, min_type):
 @jit(nopython=True)         
 def pbc(positions, L, ngram, min_type):
     number_of_pos = len(positions)
+    
+    # Handle edge case
+    if number_of_pos == 0:
+        return np.empty(0, dtype=np.uint32)
+    
     dt = np.zeros(number_of_pos, dtype=np.uint32)
 
-    min_corr = 1
-
-    if min_type==1:
-        min_corr = 1
+    min_corr = 1 if min_type == 0 else 0
     
     for i in range(number_of_pos - 1):
         dt[i] = (positions[i + 1] - positions[i]) - min_corr
     
     dt[-1] = (L - positions[-1] + positions[0]) - min_corr
     return dt
-
 
 @jit(nopython=True)
 def s(window):
@@ -473,16 +543,21 @@ def s(window):
 
 @njit(fastmath=True)
 def mse(x):
+    if len(x) == 0:
+        return 0.0
     t = x.mean()
     st = np.mean(x ** 2)
-    return np.sqrt(st - (t ** 2))
+    return np.sqrt(max(0, st - (t ** 2)))  # Avoid negative values under the square root
 
 
 @jit(nopython=True, fastmath=True)
 def R(x):
-    if len(x) == 1:
+    if len(x) <= 1:
         return 0.0
     t = np.mean(x)
+    # Avoid division by zero
+    if t == 0:
+        return 0.0
     ts = np.std(x)
     return ts / t
 
@@ -733,29 +808,62 @@ def prepere_data(data, n, split):
 
 def dfa(data, args):
     wi, wh, l = args
-    count = np.empty(len(range(wi, l, wh)), dtype=np.uint8)
-    for index, i in enumerate(range(0, l - wi, wh)):
-        temp_v = []
-        x = []
-        for ngram in data[i:i + wi]:
-            if ngram in temp_v:
-                x.append(0)
-            else:
-                temp_v.append(ngram)
-                x.append(1)
-        count[index] = s(np.array(x, dtype=np.uint8))
-    return count, mse(count)
-
+    
+    # Handle edge cases
+    if wi <= 0 or l <= 0 or wh <= 0:
+        return np.empty(0, dtype=np.uint8), 0.0
+    
+    # Calculate range of values
+    range_length = len(range(0, l - wi, wh))
+    if range_length <= 0:
+        return np.empty(0, dtype=np.uint8), 0.0
+    
+    count = np.zeros(range_length, dtype=np.uint8)
+    
+    try:
+        for index, i in enumerate(range(0, l - wi, wh)):
+            temp_v = []
+            x = []
+            for ngram in data[i:i + wi]:
+                if ngram in temp_v:
+                    x.append(0)
+                else:
+                    temp_v.append(ngram)
+                    x.append(1)
+            count[index] = s(np.array(x, dtype=np.uint8))
+        
+        # Handle empty count array
+        if len(count) == 0:
+            return count, 0.0
+            
+        return count, mse(count)
+    except Exception as e:
+        print(f"Error in dfa function: {str(e)}")
+        traceback.print_exc()
+        return np.empty(0, dtype=np.uint8), 0.0
 
 class newNgram():
     def __init__(self, data, wh, l):
         self.data = data
         self.count = {}
         self.dfa = {}
+        self.dt = np.empty(0, dtype=np.uint32)  # Initialize with empty array
+        self.R = 0
+        self.a = 0
+        self.b = 0
+        self.temp_dfa = []
+        self.goodness = 0
         self.wh, self.l = wh, l
 
     def func(self, w):
-        self.count[w], self.dfa[w] = dfa(self.data, (w, self.wh, self.l))
+        try:
+            self.count[w], self.dfa[w] = dfa(self.data, (w, self.wh, self.l))
+        except Exception as e:
+            print(f"Error in newNgram.func: {str(e)}")
+            traceback.print_exc()
+            # Set default values on error
+            self.count[w] = np.empty(0, dtype=np.uint8)
+            self.dfa[w] = 0.0
 
 
 def is_number(s):
@@ -883,151 +991,273 @@ def analyze_text(file_text, n_size, split, condition, f_min, w, wh, we, wm, defi
     
     start_time = time()
     
-    # Apply preprocessing if requested
-    if do_preprocess:
-        file_text = preprocess_text(file_text)
-        
-    # Split into syllables if requested
-    if do_syllables:
-        file_text = split_text_into_syllables(file_text)
-        
-    # Convert to CV sequence if requested
-    if do_cv:
-        file_text = convert_to_cv(file_text)
-    
-    data = prepere_data(file_text, n_size, split)
-    
-    if definition == "dynamic":
-        windows = list(range(w, wm, we))
-        new_ngram_obj = newNgram(data, wh, L)
-        
-        for w_val in windows:
-            new_ngram_obj.func(w_val)
+    try:
+        # Apply preprocessing if requested
+        if do_preprocess:
+            file_text = preprocess_text(file_text)
             
-        temp_v = []
-        temp_pos = []
-        for i, ngram in enumerate(data):
-            if ngram not in temp_v:
-                temp_v.append(ngram)
-                temp_pos.append(i)
-                
-        new_ngram_obj.dt = calculate_distance(np.array(temp_pos, dtype=np.uint8), L, condition, ngram, min_type)
-        new_ngram_obj.R = round(R(new_ngram_obj.dt), 8)
-        c, _ = curve_fit(fit, [*new_ngram_obj.dfa.keys()], [*new_ngram_obj.dfa.values()], method='lm', maxfev=5000)
-        new_ngram_obj.a = round(c[0], 8)
-        new_ngram_obj.b = round(c[1], 8)
-        new_ngram_obj.temp_dfa = []
-        
-        for w_val in new_ngram_obj.dfa.keys():
-            new_ngram_obj.temp_dfa.append(fit(w_val, new_ngram_obj.a, new_ngram_obj.b))
+        # Split into syllables if requested
+        if do_syllables:
+            file_text = split_text_into_syllables(file_text)
             
-        new_ngram_obj.goodness = round(r2_score([*new_ngram_obj.dfa.values()], new_ngram_obj.temp_dfa), 8)
+        # Convert to CV sequence if requested
+        if do_cv:
+            file_text = convert_to_cv(file_text)
         
-        df = pd.DataFrame({
-            'rank': [1],
-            'ngram': ['new_ngram'],
-            "F": [len(temp_pos)],
-            'R': [new_ngram_obj.R],
-            "a": [new_ngram_obj.a],
-            "b": [new_ngram_obj.b],
-            'goodness': [new_ngram_obj.goodness]
-        })
+        data = prepere_data(file_text, n_size, split)
         
-        V = len(temp_v)
+        if data is None:
+            return {
+                "error": "Failed to prepare data for analysis",
+                "dataframe": [],
+                "vocabulary": 0,
+                "time": 0,
+                "length": 0,
+                "ngram_data": {}
+            }
         
-        # Create a serializable version of the new_ngram_obj for the response
-        ngram_data = {
-            "R": new_ngram_obj.R,
-            "a": new_ngram_obj.a,
-            "b": new_ngram_obj.b,
-            "goodness": new_ngram_obj.goodness,
-            "dfa": make_keys_serializable(new_ngram_obj.dfa)
-        }
-
-    else:
-        make_markov_chain(data, order=n_size)
-        df = make_dataframe(model, f_min)
-
-        for index, ngram in enumerate(df['ngram']):
-            model[ngram].dt = calculate_distance(np.array(model[ngram].pos, dtype=np.uint32), L, condition, ngram, min_type)
-
-        def func(wind):
-            model[ngram].counts[wind] = make_windows(model[ngram].bool, wi=wind, l=L, wsh=wh)
-            model[ngram].fa[wind] = mse(model[ngram].counts[wind])
-
-        windows = list(range(w, wm, we))
-        temp_b = []
-        temp_R = []
-        temp_error = []
-        temp_ngram = []
-        temp_a = []
-
-        for i, ngram in enumerate(df["ngram"]):
-            for wind in windows:
-                func(wind)
-
-            model[ngram].temp_fa = []
-            ff = [*model[ngram].fa.values()]
-            c, _ = curve_fit(fit, windows, ff, method='lm', maxfev=5000)
-            model[ngram].a = c[0]
-            model[ngram].b = c[1]
+        if definition == "dynamic":
+            windows = list(range(w, wm, we))
+            new_ngram_obj = newNgram(data, wh, L)
             
             for w_val in windows:
-                model[ngram].temp_fa.append(fit(w_val, c[0], c[1]))
+                new_ngram_obj.func(w_val)
                 
-            temp_error.append(round(r2_score(ff, model[ngram].temp_fa), 5))
-            temp_b.append(round(c[1], 8))
-            temp_a.append(round(c[0], 8))
-
-            if isinstance(ngram, tuple):
-                temp_ngram.append(" ".join(ngram))
-
-            r = round(R(np.array(model[ngram].dt)), 8)
-            temp_R.append(r)
-            model[ngram].R = r
-
-        if n_size > 1:
-            temp_ngram.append("new_ngram")
-            df["ngram"] = temp_ngram
-
-        df['R'] = temp_R
-        df['b'] = temp_b
-        df['a'] = temp_a
-        df['goodness'] = temp_error
-        df = df.sort_values(by="F", ascending=False)
-        df['rank'] = range(1, len(temp_R) + 1)
-        df = df.set_index(pd.Index(np.arange(len(df))))
-        
-        # Create a dictionary of serializable model data
-        ngram_data = {}
-        for ngram in df['ngram']:
-            if n_size > 1 and ngram != "new_ngram":
-                key = tuple(ngram.split())
-            else:
-                key = ngram
+            temp_v = []
+            temp_pos = []
+            for i, ngram in enumerate(data):
+                if ngram not in temp_v:
+                    temp_v.append(ngram)
+                    temp_pos.append(i)
+                    
+            new_ngram_obj.dt = calculate_distance(np.array(temp_pos, dtype=np.uint8), L, condition, ngram, min_type)
+            new_ngram_obj.R = round(R(new_ngram_obj.dt), 8)
+            c, _ = curve_fit(fit, [*new_ngram_obj.dfa.keys()], [*new_ngram_obj.dfa.values()], method='lm', maxfev=5000)
+            new_ngram_obj.a = round(c[0], 8)
+            new_ngram_obj.b = round(c[1], 8)
+            new_ngram_obj.temp_dfa = []
+            
+            for w_val in new_ngram_obj.dfa.keys():
+                new_ngram_obj.temp_dfa.append(fit(w_val, new_ngram_obj.a, new_ngram_obj.b))
                 
-            ngram_data[str(ngram)] = {
-                "R": getattr(model[key], 'R', 0),
-                "a": getattr(model[key], 'a', 0),
-                "b": getattr(model[key], 'b', 0),
-                "fa": make_keys_serializable(getattr(model[key], 'fa', {})),
-                "temp_fa": getattr(model[key], 'temp_fa', []),
-                "bool": model[key].bool.tolist() if hasattr(model[key], 'bool') else []
+            new_ngram_obj.goodness = round(r2_score([*new_ngram_obj.dfa.values()], new_ngram_obj.temp_dfa), 8)
+            
+            df = pd.DataFrame({
+                'rank': [1],
+                'ngram': ['new_ngram'],
+                "F": [len(temp_pos)],
+                'R': [new_ngram_obj.R],
+                "a": [new_ngram_obj.a],
+                "b": [new_ngram_obj.b],
+                'goodness': [new_ngram_obj.goodness],
+                'has_error': [False]  # No error
+            })
+            
+            V = len(temp_v)
+            
+            # Create a serializable version of the new_ngram_obj for the response
+            ngram_data = {
+                "new_ngram": {
+                    "R": new_ngram_obj.R,
+                    "a": new_ngram_obj.a,
+                    "b": new_ngram_obj.b,
+                    "goodness": new_ngram_obj.goodness,
+                    "dfa": make_keys_serializable(new_ngram_obj.dfa),
+                    "bool": []  # No bool data for dynamic mode
+                }
             }
-
-    # Calculate vocabulary size
-    voc = str(V)
-    voc = int(voc) - 1
     
-    execution_time = round(time() - start_time, 4)
+        else:
+            make_markov_chain(data, order=n_size)
+            df = make_dataframe(model, f_min)
     
-    return {
-        "dataframe": df.to_dict(orient='records'),
-        "vocabulary": voc,
-        "time": execution_time,
-        "length": L,
-        "ngram_data": ngram_data
-    }
+            # Initialize arrays to hold results
+            temp_b = []
+            temp_R = []
+            temp_error = []
+            temp_ngram = []
+            temp_a = []
+            error_flags = []  # New array to track error states
+    
+            for i, ngram in enumerate(df['ngram']):
+                try:
+                    # Calculate distance
+                    model[ngram].dt = calculate_distance(np.array(model[ngram].pos, dtype=np.uint32), L, condition, ngram, min_type)
+    
+                    # Process each window size
+                    windows = list(range(w, wm, we))
+                    model[ngram].counts = {}
+                    model[ngram].fa = {}
+                    
+                    for wind in windows:
+                        try:
+                            model[ngram].counts[wind] = make_windows(model[ngram].bool, wi=wind, l=L, wsh=wh)
+                            model[ngram].fa[wind] = mse(model[ngram].counts[wind])
+                        except Exception as e:
+                            print(f"Error processing window {wind} for ngram {ngram}: {str(e)}")
+                            model[ngram].counts[wind] = np.array([])
+                            model[ngram].fa[wind] = 0.0
+    
+                    # Calculate curve fit
+                    model[ngram].temp_fa = []
+                    ff = [*model[ngram].fa.values()]
+                    
+                    if len(ff) > 0 and not all(v == 0 for v in ff) and len(windows) > 0:
+                        try:
+                            c, _ = curve_fit(fit, windows, ff, method='lm', maxfev=5000)
+                            model[ngram].a = c[0]
+                            model[ngram].b = c[1]
+                            
+                            for w_val in windows:
+                                model[ngram].temp_fa.append(fit(w_val, c[0], c[1]))
+                            
+                            # Calculate goodness of fit
+                            goodness = round(r2_score(ff, model[ngram].temp_fa), 5)
+                        except Exception as e:
+                            # Curve fitting failed
+                            print(f"Curve fit failed for {ngram}: {str(e)}")
+                            c = [0, 0]
+                            model[ngram].a = 0
+                            model[ngram].b = 0
+                            model[ngram].temp_fa = [0] * len(windows)
+                            goodness = 0
+                    else:
+                        c = [0, 0]
+                        model[ngram].a = 0
+                        model[ngram].b = 0
+                        model[ngram].temp_fa = []
+                        goodness = 0
+                    
+                    # Calculate R value
+                    r = round(R(np.array(model[ngram].dt)), 8)
+                    model[ngram].R = r
+                    
+                    # Append results
+                    temp_error.append(goodness)
+                    temp_b.append(round(c[1], 8))
+                    temp_a.append(round(c[0], 8))
+                    
+                    if isinstance(ngram, tuple):
+                        temp_ngram.append(" ".join(ngram))
+                    else:
+                        temp_ngram.append(ngram)
+                    
+                    temp_R.append(r)
+                    error_flags.append(False)  # No error for this n-gram
+                    
+                except Exception as e:
+                    # Handle error for this n-gram
+                    print(f"Error processing n-gram {ngram}: {str(e)}")
+                    traceback.print_exc()
+                    
+                    # Add placeholder data
+                    temp_error.append(0)
+                    temp_b.append(0)
+                    temp_a.append(0)
+                    
+                    if isinstance(ngram, tuple):
+                        temp_ngram.append(" ".join(ngram))
+                    else:
+                        temp_ngram.append(ngram)
+                    
+                    temp_R.append(0)
+                    error_flags.append(True)  # Mark this n-gram as having an error
+                    
+                    # Create basic structures for the model if they don't exist
+                    if not hasattr(model[ngram], 'R'):
+                        model[ngram].R = 0
+                    if not hasattr(model[ngram], 'a'):
+                        model[ngram].a = 0
+                    if not hasattr(model[ngram], 'b'):
+                        model[ngram].b = 0
+                    if not hasattr(model[ngram], 'fa'):
+                        model[ngram].fa = {}
+                    if not hasattr(model[ngram], 'temp_fa'):
+                        model[ngram].temp_fa = []
+    
+            # Update the dataframe with results
+            # df['R'] = temp_R
+            # df['b'] = temp_b
+            # df['a'] = temp_a
+            # df['goodness'] = temp_error
+            # df['has_error'] = error_flags  # Add error flags to the dataframe
+            
+            # Create a new dataframe with all columns
+            df_data = {
+                "rank": list(range(1, len(temp_ngram) + 1)),
+                "ngram": temp_ngram,
+                "F": df["F"].tolist(),
+                "R": temp_R,
+                "a": temp_a,
+                "b": temp_b,
+                "goodness": temp_error,
+                "has_error": error_flags
+            }
+            df = pd.DataFrame(df_data)
+            
+            df = df.sort_values(by="F", ascending=False)
+            df['rank'] = range(1, len(df) + 1)
+            df = df.set_index(pd.Index(np.arange(len(df))))
+    
+            # Create a dictionary of serializable model data
+            ngram_data = {}
+            for ngram in df['ngram']:
+                if n_size > 1 and ngram != "new_ngram":
+                    key = tuple(ngram.split())
+                else:
+                    key = ngram
+                    
+                row_data = df[df['ngram'] == ngram].iloc[0]
+                has_error = row_data.get('has_error', False)
+                
+                if has_error:
+                    # For n-grams with errors, provide minimal data
+                    ngram_data[str(ngram)] = {
+                        "R": 0,
+                        "a": 0,
+                        "b": 0,
+                        "fa": {},
+                        "temp_fa": [],
+                        "bool": [],
+                        "has_error": True
+                    }
+                else:
+                    # For valid n-grams, provide full data
+                    ngram_data[str(ngram)] = {
+                        "R": getattr(model[key], 'R', 0),
+                        "a": getattr(model[key], 'a', 0),
+                        "b": getattr(model[key], 'b', 0),
+                        "fa": make_keys_serializable(getattr(model[key], 'fa', {})),
+                        "temp_fa": getattr(model[key], 'temp_fa', []),
+                        "bool": model[key].bool.tolist() if hasattr(model[key], 'bool') else [],
+                        "has_error": False
+                    }
+    
+        # Calculate vocabulary size
+        voc = str(V)
+        voc = int(voc) - 1
+        
+        execution_time = round(time() - start_time, 4)
+        
+        return {
+            "dataframe": df.to_dict(orient='records'),
+            "vocabulary": voc,
+            "time": execution_time,
+            "length": L,
+            "ngram_data": ngram_data
+        }
+        
+    except Exception as e:
+        print(f"Error in analyze_text: {str(e)}")
+        traceback.print_exc()
+        return {
+            "error": f"Analysis failed: {str(e)}",
+            "dataframe": [],
+            "vocabulary": 0,
+            "time": 0,
+            "length": 0,
+            "ngram_data": {}
+        }
 
 
 def generate_markov_graph(n_size):
@@ -1114,6 +1344,7 @@ def generate_markov_graph(n_size):
 def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmin_for_lmax, 
                   w, wh, we, wm, definition, do_preprocess=False, do_syllables=False, do_cv=False):
     """Process a corpus of text files and return aggregated results"""
+    global L, model, V, df
     
     # Prepare storage for results
     corpus_results = []
@@ -1122,35 +1353,44 @@ def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmi
     
     # First pass: collect all file lengths to calculate appropriate F_min
     for file_name, file_content in files.items():
-        # Apply preprocessing if requested
-        processed_content = file_content
-        if do_preprocess:
-            processed_content = preprocess_text(processed_content)
-        
-        # Split into syllables if requested
-        if do_syllables:
-            processed_content = split_text_into_syllables(processed_content)
+        try:
+            # Apply preprocessing if requested
+            processed_content = file_content
+            if do_preprocess:
+                processed_content = preprocess_text(processed_content)
             
-        # Convert to CV sequence if requested
-        if do_cv:
-            processed_content = convert_to_cv(processed_content)
-            
-        data = prepere_data(processed_content, n_size, split)
-        if data:
-            file_length = len(data)
-            length_info.append({"file": file_name, "length": file_length})
+            # Split into syllables if requested
+            if do_syllables:
+                processed_content = split_text_into_syllables(processed_content)
+                
+            # Convert to CV sequence if requested
+            if do_cv:
+                processed_content = convert_to_cv(processed_content)
+                
+            data = prepere_data(processed_content, n_size, split)
+            if data:
+                file_length = len(data)
+                length_info.append({"file": file_name, "length": file_length})
+                file_names.append(file_name)
+        except Exception as e:
+            print(f"Error in first pass for file {file_name}: {str(e)}")
+            traceback.print_exc()
+            # Still add the file to the list, but with a placeholder length
+            length_info.append({"file": file_name, "length": 0, "error": True})
             file_names.append(file_name)
     
-    # Find Lmin and Lmax
-    sorted_by_len = sorted(length_info, key=lambda x: x["length"])
+    # Find Lmin and Lmax from valid files
+    sorted_by_len = sorted([item for item in length_info if item.get("length", 0) > 0], 
+                           key=lambda x: x["length"])
+    
     if not sorted_by_len:
         return {"error": "No valid files found in corpus"}
         
-    Lmin_actual = sorted_by_len[0]["length"]
-    Lmax_actual = sorted_by_len[-1]["length"]
+    Lmin_actual = sorted_by_len[0]["length"] if sorted_by_len else 0
+    Lmax_actual = sorted_by_len[-1]["length"] if sorted_by_len else 0
     
     # Calculate F_min slope
-    if Lmax_actual == Lmin_actual:
+    if Lmax_actual == Lmin_actual or Lmin_actual == 0:
         slope = 0
     else:
         slope = (fmin_for_lmax - fmin_for_lmin) / (Lmax_actual - Lmin_actual)
@@ -1158,223 +1398,406 @@ def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmi
     # Process each file
     start_all = time()
     
-    for i, item in enumerate(sorted_by_len, start=1):
+    for i, item in enumerate(length_info, start=1):
         file_name = item["file"]
-        file_length = item["length"]
-        file_content = files[file_name]
+        file_length = item.get("length", 0)
+        has_error = item.get("error", False)
         
-        # Apply preprocessing if requested
-        processed_content = file_content
-        if do_preprocess:
-            processed_content = preprocess_text(processed_content)
+        # Initialize metrics with default values
+        R_avg = 0
+        dR = 0
+        Rw_avg = 0
+        dRw = 0
+        b_avg = 0
+        db = 0
+        bw_avg = 0
+        dbw = 0
+        Vcount = 0
+        f_min_for_this = 0
+        processing_time = 0
         
-        # Split into syllables if requested
-        if do_syllables:
-            processed_content = split_text_into_syllables(processed_content)
-            
-        # Convert to CV sequence if requested
-        if do_cv:
-            processed_content = convert_to_cv(processed_content)
-        
-        # Calculate F_min for this file
-        f_min_for_this = fmin_for_lmin + slope * (file_length - Lmin_actual)
-        f_min_for_this = round(f_min_for_this)
-        
-        # Start processing this file
-        t0 = time()
-        data = prepere_data(processed_content, n_size, split)
-        
-        if definition == "dynamic":
-            # Dynamic analysis
-            # Create windows array
-            windows = list(range(w, wm, we))
-            new_ngram_obj = newNgram(data, wh, file_length)
-            
-            for w_val in windows:
-                new_ngram_obj.func(w_val)
+        try:
+            if has_error:
+                raise Exception("Error detected in first pass")
                 
-            temp_v = []
-            temp_pos = []
-            for i, ngram in enumerate(data):
-                if ngram not in temp_v:
-                    temp_v.append(ngram)
-                    temp_pos.append(i)
-                    
-            new_ngram_obj.dt = calculate_distance(np.array(temp_pos, dtype=np.uint8), file_length, condition, ngram, min_type)
-            new_ngram_obj.R = round(R(new_ngram_obj.dt), 8)
+            file_content = files[file_name]
             
+            # Apply preprocessing if requested
+            processed_content = file_content
+            if do_preprocess:
+                processed_content = preprocess_text(processed_content)
+            
+            # Split into syllables if requested
+            if do_syllables:
+                processed_content = split_text_into_syllables(processed_content)
+                
+            # Convert to CV sequence if requested
+            if do_cv:
+                processed_content = convert_to_cv(processed_content)
+            
+            # Calculate F_min for this file
+            f_min_for_this = fmin_for_lmin + slope * (file_length - Lmin_actual) if file_length > 0 else fmin_for_lmin
+            f_min_for_this = round(f_min_for_this)
+            
+            # Start processing this file
+            t0 = time()
+            
+            # Prepare data for analysis
             try:
-                c, _ = curve_fit(fit, [*new_ngram_obj.dfa.keys()], [*new_ngram_obj.dfa.values()], method='lm', maxfev=5000)
-                new_ngram_obj.a = round(c[0], 8)
-                new_ngram_obj.b = round(c[1], 8)
+                data = prepere_data(processed_content, n_size, split)
                 
-                new_ngram_obj.temp_dfa = []
-                for w_val in new_ngram_obj.dfa.keys():
-                    new_ngram_obj.temp_dfa.append(fit(w_val, new_ngram_obj.a, new_ngram_obj.b))
-                    
-                new_ngram_obj.goodness = round(r2_score([*new_ngram_obj.dfa.values()], new_ngram_obj.temp_dfa), 8)
+                if data is None:
+                    raise Exception("Failed to prepare data")
                 
-                R_avg = new_ngram_obj.R
-                dR = 0
-                Rw_avg = R_avg
-                dRw = 0
-                b_avg = new_ngram_obj.b
-                db = 0
-                bw_avg = b_avg
-                dbw = 0
-                Vcount = len(temp_v)
-            except Exception as e:
-                print(f"Error in curve fitting for {file_name}: {str(e)}")
-                R_avg = dR = Rw_avg = dRw = b_avg = db = bw_avg = dbw = 0
-                Vcount = len(temp_v) if temp_v else 0
-            
-        else:
-            # Static analysis
-            make_markov_chain(data, order=n_size)
-            df_onefile = make_dataframe(model, f_min_for_this)
-            
-            # Calculate R, b, goodness for each n-gram
-            windows = list(range(w, wm, we))
-            temp_b = []
-            temp_R = []
-            temp_error = []
-            temp_a = []
-            temp_ngram = []
-            
-            for ngram in df_onefile["ngram"]:
-                if ngram == "new_ngram":
-                    continue
-                    
-                # Calculate dt (distances)
-                model[ngram].dt = calculate_distance(
-                    np.array(model[ngram].pos, dtype=np.uint32),
-                    file_length,
-                    condition,
-                    ngram,
-                    min_type
-                )
+                if len(data) == 0:
+                    raise Exception("Empty data returned from prepere_data")
                 
-                # Calculate fa for each window size
-                for wind in windows:
+                # Dynamic or static analysis
+                if definition == "dynamic":
+                    # Dynamic analysis code
                     try:
-                        count_arr = make_windows(model[ngram].bool, wi=wind, l=file_length, wsh=wh)
-                        if len(count_arr) == 0:
-                            model[ngram].fa[wind] = 0.0
-                        else:
-                            model[ngram].fa[wind] = mse(count_arr)
-                        model[ngram].counts[wind] = count_arr
-                    except Exception as e:
-                        print(f"Error in make_windows for {ngram}: {str(e)}")
-                        model[ngram].fa[wind] = 0.0
-                        model[ngram].counts[wind] = np.array([])
-                
-                # Curve fitting
-                try:
-                    ff = [*model[ngram].fa.values()]
-                    if len(ff) > 0 and not all(v == 0 for v in ff) and len(windows) > 0:
-                        try:
-                            c, _ = curve_fit(fit, windows, ff, method='lm', maxfev=5000)
-                            model[ngram].a = c[0]
-                            model[ngram].b = c[1]
-                            
-                            model[ngram].temp_fa = [fit(w_val, c[0], c[1]) for w_val in windows]
-                            temp_error.append(round(r2_score(ff, model[ngram].temp_fa), 5))
-                            temp_b.append(round(c[1], 8))
-                            temp_a.append(round(c[0], 8))
-                        except Exception as e:
-                            print(f"Curve fit failed for {ngram}: {str(e)}")
-                            print(f"Windows: {windows}")
-                            print(f"Values: {ff}")
-                            model[ngram].a = 0
-                            model[ngram].b = 0
-                            temp_error.append(0)
-                            temp_b.append(0)
-                            temp_a.append(0)
-                    else:
-                        model[ngram].a = 0
-                        model[ngram].b = 0
-                        temp_error.append(0)
-                        temp_b.append(0)
-                        temp_a.append(0)
-                except Exception as e:
-                    print(f"Error in curve_fit preparation for {ngram}: {str(e)}")
-                    model[ngram].a = 0
-                    model[ngram].b = 0
-                    temp_error.append(0)
-                    temp_b.append(0)
-                    temp_a.append(0)
-                
-                # Calculate R
-                try:
-                    rr = round(R(np.array(model[ngram].dt)), 8)
-                    temp_R.append(rr)
-                    model[ngram].R = rr
-                except Exception as e:
-                    print(f"Error calculating R for {ngram}: {str(e)}")
-                    temp_R.append(0)
-                    model[ngram].R = 0
-                
-                # Format ngram
-                if isinstance(ngram, tuple):
-                    temp_ngram.append(" ".join(ngram))
-                else:
-                    temp_ngram.append(ngram)
-            
-            # Add calculations to dataframe
-            if temp_R:
-                df_onefile["R"] = pd.Series(temp_R, index=df_onefile.index[:-1])  # Exclude new_ngram
-                df_onefile["b"] = pd.Series(temp_b, index=df_onefile.index[:-1])
-                df_onefile["a"] = pd.Series(temp_a, index=df_onefile.index[:-1])
-                df_onefile["goodness"] = pd.Series(temp_error, index=df_onefile.index[:-1])
-                
-                # Calculate weighted metrics
-                df_no_new = df_onefile[df_onefile["ngram"] != "new_ngram"].copy()
-                if not df_no_new.empty and "F" in df_no_new.columns:
-                    try:
-                        df_no_new["w"] = df_no_new["F"] / df_no_new["F"].sum()
-                        R_avg = df_no_new["R"].mean()
-                        dR = df_no_new["R"].std()
-                        df_no_new["Rw"] = df_no_new["R"] * df_no_new["w"]
-                        Rw_avg = df_no_new["Rw"].sum()
-                        dRw = np.sqrt(((df_no_new["R"] - Rw_avg)**2 * df_no_new["w"]).sum())
+                        windows = list(range(w, wm, we))
+                        new_ngram_obj = newNgram(data, wh, file_length)
                         
-                        b_avg = df_no_new["b"].mean()
-                        db = df_no_new["b"].std()
-                        df_no_new["bw"] = df_no_new["b"] * df_no_new["w"]
-                        bw_avg = df_no_new["bw"].sum()
-                        dbw = np.sqrt(((df_no_new["b"] - bw_avg)**2 * df_no_new["w"]).sum())
-                        Vcount = df_no_new["ngram"].nunique()
+                        for w_val in windows:
+                            new_ngram_obj.func(w_val)
+                            
+                        temp_v = []
+                        temp_pos = []
+                        for idx, ngram in enumerate(data):
+                            if ngram not in temp_v:
+                                temp_v.append(ngram)
+                                temp_pos.append(idx)
+                        
+                        if len(temp_pos) == 0:
+                            raise Exception("No positions found for n-grams")
+                            
+                        new_ngram_obj.dt = calculate_distance(np.array(temp_pos, dtype=np.uint32), file_length, condition, ngram, min_type)
+                        # Check if dt is not empty before calculating R
+                        if len(new_ngram_obj.dt) > 0:
+                            new_ngram_obj.R = round(R(new_ngram_obj.dt), 8)
+                        else:
+                            new_ngram_obj.R = 0  # Set default R value for empty dt
+                        new_ngram_obj.R = round(R(new_ngram_obj.dt), 8) if len(new_ngram_obj.dt) > 0 else 0
+                        
+                        try:
+                            dfa_keys = list(new_ngram_obj.dfa.keys())
+                            dfa_values = list(new_ngram_obj.dfa.values())
+                            
+                            if len(dfa_keys) == 0 or len(dfa_values) == 0:
+                                raise Exception("Empty DFA keys or values")
+                                
+                            c, _ = curve_fit(fit, dfa_keys, dfa_values, method='lm', maxfev=5000)
+                            new_ngram_obj.a = round(c[0], 8)
+                            new_ngram_obj.b = round(c[1], 8)
+                            
+                            new_ngram_obj.temp_dfa = []
+                            for w_val in dfa_keys:
+                                new_ngram_obj.temp_dfa.append(fit(w_val, new_ngram_obj.a, new_ngram_obj.b))
+                                
+                            new_ngram_obj.goodness = round(r2_score(dfa_values, new_ngram_obj.temp_dfa), 8)
+                            
+                            R_avg = new_ngram_obj.R
+                            dR = 0
+                            Rw_avg = R_avg
+                            dRw = 0
+                            b_avg = new_ngram_obj.b
+                            db = 0
+                            bw_avg = b_avg
+                            dbw = 0
+                            Vcount = len(temp_v)
+                        except Exception as e:
+                            print(f"Error in curve fitting for {file_name}: {str(e)}")
+                            traceback.print_exc()
+                            R_avg = 0
+                            dR = 0
+                            Rw_avg = 0
+                            dRw = 0
+                            b_avg = 0
+                            db = 0
+                            bw_avg = 0
+                            dbw = 0
+                            Vcount = len(temp_v) if temp_v else 0
+                            
                     except Exception as e:
-                        print(f"Error calculating metrics for {file_name}: {str(e)}")
-                        R_avg = dR = Rw_avg = dRw = b_avg = db = bw_avg = dbw = 0
-                        Vcount = 0
+                        print(f"Error in dynamic analysis for {file_name}: {str(e)}")
+                        traceback.print_exc()
+                        raise
+                        
                 else:
-                    R_avg = dR = Rw_avg = dRw = b_avg = db = bw_avg = dbw = 0
-                    Vcount = 0
-            else:
-                R_avg = dR = Rw_avg = dRw = b_avg = db = bw_avg = dbw = 0
-                Vcount = 0
-        
-        # Time for this file
-        processing_time = round(time() - t0, 4)
-        
-        # Add to results
-        corpus_results.append({
-            "№": i,
-            "file": file_name,
-            "F_min": f_min_for_this,
-            "L": file_length,
-            "V": Vcount,
-            "time": processing_time,
-            "R_avg": R_avg,
-            "dR": dR,
-            "Rw_avg": Rw_avg,
-            "dRw": dRw,
-            "b_avg": b_avg,
-            "db": db,
-            "bw_avg": bw_avg,
-            "dbw": dbw
-        })
+                    # Static analysis
+                    try:
+                        # Create Markov chain
+                        make_markov_chain(data, order=n_size)
+                        
+                        # Ensure all model elements have the proper attributes
+                        for key in list(model.keys()):
+                            if not isinstance(model[key], Ngram):
+                                temp = model[key]
+                                model[key] = Ngram()
+                                if isinstance(temp, dict):
+                                    for k, v in temp.items():
+                                        model[key][k] = v
+                                
+                            # Ensure all required attributes exist
+                            if not hasattr(model[key], 'pos'):
+                                model[key].pos = []
+                            if not hasattr(model[key], 'bool'):
+                                model[key].bool = np.zeros(L, dtype=np.uint8)
+                            if not hasattr(model[key], 'fa'):
+                                model[key].fa = {}
+                            if not hasattr(model[key], 'counts'):
+                                model[key].counts = {}
+                        
+                        try:
+                            # Create dataframe
+                            df_onefile = make_dataframe(model, f_min_for_this)
+                            
+                            # Calculate R, b, goodness for each n-gram
+                            windows = list(range(w, wm, we))
+                            temp_b = []
+                            temp_R = []
+                            temp_error = []
+                            temp_a = []
+                            temp_ngram = []
+                            
+                            for ngram in df_onefile["ngram"]:
+                                if ngram == "new_ngram":
+                                    continue
+                                    
+                                try:
+                                    # Calculate dt (distances)
+                                    if not hasattr(model[ngram], 'pos') or not model[ngram].pos:
+                                        model[ngram].pos = []
+                                        
+                                    if not hasattr(model[ngram], 'dt'):
+                                        model[ngram].dt = np.array([], dtype=np.uint32)
+                                    
+                                    model[ngram].dt = calculate_distance(
+                                        np.array(model[ngram].pos, dtype=np.uint32),
+                                        file_length,
+                                        condition,
+                                        ngram,
+                                        min_type
+                                    )
+                                    
+                                    # Calculate fa for each window size
+                                    for wind in windows:
+                                        try:
+                                            if not hasattr(model[ngram], 'bool') or model[ngram].bool is None:
+                                                model[ngram].bool = np.zeros(file_length, dtype=np.uint8)
+                                                
+                                            count_arr = make_windows(model[ngram].bool, wi=wind, l=file_length, wsh=wh)
+                                            
+                                            if not hasattr(model[ngram], 'fa'):
+                                                model[ngram].fa = {}
+                                                
+                                            if not hasattr(model[ngram], 'counts'):
+                                                model[ngram].counts = {}
+                                                
+                                            if len(count_arr) == 0:
+                                                model[ngram].fa[wind] = 0.0
+                                            else:
+                                                model[ngram].fa[wind] = mse(count_arr)
+                                            model[ngram].counts[wind] = count_arr
+                                        except Exception as e:
+                                            print(f"Error in make_windows for {ngram}: {str(e)}")
+                                            traceback.print_exc()
+                                            model[ngram].fa[wind] = 0.0
+                                            model[ngram].counts[wind] = np.array([])
+                                    
+                                    # Curve fitting
+                                    try:
+                                        if not hasattr(model[ngram], 'fa'):
+                                            model[ngram].fa = {}
+                                            
+                                        ff = [*model[ngram].fa.values()]
+                                        
+                                        if len(ff) > 0 and not all(v == 0 for v in ff) and len(windows) > 0:
+                                            try:
+                                                c, _ = curve_fit(fit, windows, ff, method='lm', maxfev=5000)
+                                                model[ngram].a = c[0]
+                                                model[ngram].b = c[1]
+                                                
+                                                if not hasattr(model[ngram], 'temp_fa'):
+                                                    model[ngram].temp_fa = []
+                                                    
+                                                model[ngram].temp_fa = [fit(w_val, c[0], c[1]) for w_val in windows]
+                                                temp_error.append(round(r2_score(ff, model[ngram].temp_fa), 5))
+                                                temp_b.append(round(c[1], 8))
+                                                temp_a.append(round(c[0], 8))
+                                            except Exception as e:
+                                                print(f"Curve fit failed for {ngram}: {str(e)}")
+                                                traceback.print_exc()
+                                                model[ngram].a = 0
+                                                model[ngram].b = 0
+                                                temp_error.append(0)
+                                                temp_b.append(0)
+                                                temp_a.append(0)
+                                        else:
+                                            model[ngram].a = 0
+                                            model[ngram].b = 0
+                                            temp_error.append(0)
+                                            temp_b.append(0)
+                                            temp_a.append(0)
+                                    except Exception as e:
+                                        print(f"Error in curve_fit preparation for {ngram}: {str(e)}")
+                                        traceback.print_exc()
+                                        model[ngram].a = 0
+                                        model[ngram].b = 0
+                                        temp_error.append(0)
+                                        temp_b.append(0)
+                                        temp_a.append(0)
+                                    
+                                    # Calculate R
+                                    try:
+                                        if not hasattr(model[ngram], 'dt') or len(model[ngram].dt) == 0:
+                                            model[ngram].dt = np.array([0], dtype=np.uint32)
+                                            
+                                        rr = round(R(np.array(model[ngram].dt)), 8)
+                                        temp_R.append(rr)
+                                        model[ngram].R = rr
+                                    except Exception as e:
+                                        print(f"Error calculating R for {ngram}: {str(e)}")
+                                        traceback.print_exc()
+                                        temp_R.append(0)
+                                        model[ngram].R = 0
+                                    
+                                    # Format ngram
+                                    if isinstance(ngram, tuple):
+                                        temp_ngram.append(" ".join(ngram))
+                                    else:
+                                        temp_ngram.append(ngram)
+                                except Exception as e:
+                                    print(f"Error processing ngram {ngram} in file {file_name}: {str(e)}")
+                                    traceback.print_exc()
+                                    # Still add the ngram to maintain counts, but with placeholder values
+                                    temp_error.append(0)
+                                    temp_b.append(0)
+                                    temp_a.append(0)
+                                    temp_R.append(0)
+                                    if isinstance(ngram, tuple):
+                                        temp_ngram.append(" ".join(ngram))
+                                    else:
+                                        temp_ngram.append(ngram)
+                            
+                            # Add calculations to dataframe
+                            if temp_R:
+                                df_onefile["R"] = pd.Series(temp_R, index=df_onefile.index[:-1])  # Exclude new_ngram
+                                df_onefile["b"] = pd.Series(temp_b, index=df_onefile.index[:-1])
+                                df_onefile["a"] = pd.Series(temp_a, index=df_onefile.index[:-1])
+                                df_onefile["goodness"] = pd.Series(temp_error, index=df_onefile.index[:-1])
+                                
+                                # Calculate weighted metrics
+                                df_no_new = df_onefile[df_onefile["ngram"] != "new_ngram"].copy()
+                                if not df_no_new.empty and "F" in df_no_new.columns:
+                                    try:
+                                        df_no_new["w"] = df_no_new["F"] / df_no_new["F"].sum() if df_no_new["F"].sum() > 0 else 0
+                                        R_avg = df_no_new["R"].mean() if not df_no_new["R"].isna().all() else 0
+                                        dR = df_no_new["R"].std() if not df_no_new["R"].isna().all() else 0
+                                        df_no_new["Rw"] = df_no_new["R"] * df_no_new["w"]
+                                        Rw_avg = df_no_new["Rw"].sum() if not df_no_new["Rw"].isna().all() else 0
+                                        dRw = np.sqrt(((df_no_new["R"] - Rw_avg)**2 * df_no_new["w"]).sum()) if not df_no_new["R"].isna().all() else 0
+                                        
+                                        b_avg = df_no_new["b"].mean() if not df_no_new["b"].isna().all() else 0
+                                        db = df_no_new["b"].std() if not df_no_new["b"].isna().all() else 0
+                                        df_no_new["bw"] = df_no_new["b"] * df_no_new["w"]
+                                        bw_avg = df_no_new["bw"].sum() if not df_no_new["bw"].isna().all() else 0
+                                        dbw = np.sqrt(((df_no_new["b"] - bw_avg)**2 * df_no_new["w"]).sum()) if not df_no_new["b"].isna().all() else 0
+                                        Vcount = df_no_new["ngram"].nunique()
+                                    except Exception as e:
+                                        print(f"Error calculating metrics for {file_name}: {str(e)}")
+                                        traceback.print_exc()
+                                        R_avg = 0
+                                        dR = 0
+                                        Rw_avg = 0
+                                        dRw = 0
+                                        b_avg = 0
+                                        db = 0
+                                        bw_avg = 0
+                                        dbw = 0
+                                        Vcount = 0
+                                else:
+                                    R_avg = 0
+                                    dR = 0
+                                    Rw_avg = 0
+                                    dRw = 0
+                                    b_avg = 0
+                                    db = 0
+                                    bw_avg = 0
+                                    dbw = 0
+                                    Vcount = 0
+                            else:
+                                R_avg = 0
+                                dR = 0
+                                Rw_avg = 0
+                                dRw = 0
+                                b_avg = 0
+                                db = 0
+                                bw_avg = 0
+                                dbw = 0
+                                Vcount = 0
+                                
+                        except Exception as e:
+                            print(f"Error in make_dataframe for {file_name}: {str(e)}")
+                            traceback.print_exc()
+                            raise Exception(f"Failed to create dataframe: {str(e)}")
+                            
+                    except Exception as e:
+                        print(f"Error in static analysis for {file_name}: {str(e)}")
+                        traceback.print_exc()
+                        raise
+            
+            except Exception as e:
+                print(f"Error preparing data for {file_name}: {str(e)}")
+                traceback.print_exc()
+                raise
+                
+            # Time for this file
+            processing_time = round(time() - t0, 4)
+            
+            # Add to results
+            corpus_results.append({
+                "№": i,
+                "file": file_name,
+                "F_min": f_min_for_this,
+                "L": file_length,
+                "V": Vcount,
+                "time": processing_time,
+                "R_avg": R_avg,
+                "dR": dR,
+                "Rw_avg": Rw_avg,
+                "dRw": dRw,
+                "b_avg": b_avg,
+                "db": db,
+                "bw_avg": bw_avg,
+                "dbw": dbw,
+                "has_error": False  # No error for this file
+            })
+            
+        except Exception as e:
+            # Handle error for this file
+            print(f"Error processing file {file_name}: {str(e)}")
+            traceback.print_exc()
+            
+            # Add placeholder result with error marker
+            corpus_results.append({
+                "№": i,
+                "file": file_name,
+                "F_min": "-",
+                "L": "-",
+                "V": "-",
+                "time": "-",
+                "R_avg": "-",
+                "dR": "-",
+                "Rw_avg": "-",
+                "dRw": "-",
+                "b_avg": "-",
+                "db": "-",
+                "bw_avg": "-",
+                "dbw": "-",
+                "has_error": True  # Mark this file as having an error
+            })
     
     # Total processing time
     total_time = round(time() - start_all, 4)
@@ -1384,7 +1807,6 @@ def process_corpus(files, n_size, split, condition, min_type, fmin_for_lmin, fmi
         "total_time": total_time,
         "file_count": len(corpus_results)
     }
-
 # API Routes
 @app.route('/api/calculate-windows', methods=['POST'])
 def api_calculate_windows():
@@ -1493,6 +1915,17 @@ def api_analyze():
             w, wh, we, wm, definition, min_type, 
             do_preprocess, do_syllables, do_cv
         )
+        
+        # Check if there was an error with the entire analysis
+        if "error" in result and result["error"]:
+            return jsonify({
+                "error": result["error"],
+                "dataframe": [],
+                "vocabulary": 0,
+                "time": 0,
+                "length": 0,
+                "ngram_data": {}
+            }), 400
         
         # Add information about preprocessing to the result
         result['preprocessing'] = {

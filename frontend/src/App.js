@@ -5,8 +5,8 @@ import {
   Container, Form, Button, Card, Row, Col, Spinner,
   Table, Nav, Tab, Alert, ProgressBar, Modal
 } from 'react-bootstrap';
-import { 
-  LineChart, Line, XAxis, YAxis, CartesianGrid, 
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, Legend, ResponsiveContainer,
   ScatterChart, Scatter
 } from 'recharts';
@@ -49,7 +49,7 @@ function App() {
   const [windowParams, setWindowParams] = useState(null);
   const [markovGraph, setMarkovGraph] = useState(null);
   const [processingProgress, setProcessingProgress] = useState(0);
-  
+
   // Text preprocessing state variables
   const [doPreprocess, setDoPreprocess] = useState(false);
   const [doSyllables, setDoSyllables] = useState(false);
@@ -61,16 +61,16 @@ function App() {
   const ErrorAlert = ({ error, onClose }) => {
     // Check if error is a simple string or a multiline message
     const hasMultipleLines = error && error.includes('\n');
-    
+
     return (
       <Alert variant="danger" onClose={onClose} dismissible>
         {hasMultipleLines ? (
           <div>
             <strong>Error:</strong>
-            <pre className="mt-2 mb-0" style={{ 
-              whiteSpace: 'pre-wrap', 
-              backgroundColor: 'rgba(0,0,0,0.05)', 
-              padding: '8px', 
+            <pre className="mt-2 mb-0" style={{
+              whiteSpace: 'pre-wrap',
+              backgroundColor: 'rgba(0,0,0,0.05)',
+              padding: '8px',
               borderRadius: '4px',
               fontSize: '0.9rem',
               maxHeight: '200px',
@@ -91,7 +91,7 @@ function App() {
     const file = event.target.files[0];
     setFile(file);
     setAnalysisMode('single');
-    
+
     const reader = new FileReader();
     reader.onload = (e) => {
       setFileContent(e.target.result);
@@ -105,17 +105,17 @@ function App() {
     const files = Array.from(event.target.files);
     setCorpusFiles(files);
     setAnalysisMode('corpus');
-    
+
     // Зчитуємо вміст кожного файлу для подальшого використання
     const fileContents = {};
     let filesProcessed = 0;
-    
+
     files.forEach(file => {
       const reader = new FileReader();
       reader.onload = (e) => {
         fileContents[file.name] = e.target.result;
         filesProcessed++;
-        
+
         // Коли всі файли зчитані, зберігаємо їх вміст
         if (filesProcessed === files.length) {
           setCorpusFilesContent(fileContents);
@@ -123,7 +123,7 @@ function App() {
       };
       reader.readAsText(file);
     });
-    
+
     // For corpus, we can estimate window parameters based on the first file
     if (files.length > 0) {
       const reader = new FileReader();
@@ -151,7 +151,7 @@ function App() {
         n_size: config.n_size,
         split: config.split
       });
-      
+
       setWindowParams(response.data);
       setConfig(prev => ({
         ...prev,
@@ -165,36 +165,36 @@ function App() {
       // Enhanced error handling
       const errorData = err.response?.data;
       let errorMessage = 'Failed to calculate window parameters';
-      
+
       if (errorData) {
         if (errorData.context && errorData.error) {
           errorMessage = `${errorData.error} (Context: ${errorData.context})`;
         } else if (errorData.error) {
           errorMessage = errorData.error;
         }
-        
+
         // Add details if available
         if (errorData.details) {
           errorMessage += `\nDetails: ${errorData.details}`;
         }
-        
+
         // Add parameter information if available
         if (errorData.parameters) {
           const params = errorData.parameters;
           errorMessage += `\nParameters: n_size=${params.n_size}, split=${params.split}, text length=${params.text_length}`;
         }
       }
-      
+
       setError(errorMessage);
       setLoading(false);
-      
+
       // Log more details to console for debugging
       if (errorData && errorData.trace) {
         console.error('Server error trace:', errorData.trace);
       }
     }
   };
-  
+
   // Preview text processing
   const handlePreviewText = async () => {
     if (!fileContent) {
@@ -205,14 +205,14 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await axios.post(`${API_URL}/preprocess`, {
         text: fileContent,
         do_preprocess: doPreprocess,
         do_syllables: doSyllables,
         do_cv: doCV
       });
-      
+
       setPreprocessedText(response.data.processed_text);
       setShowPreview(true);
       setLoading(false);
@@ -220,7 +220,7 @@ function App() {
       // Enhanced error handling
       const errorData = err.response?.data;
       let errorMessage = 'Preview processing failed';
-      
+
       if (errorData) {
         if (errorData.context && errorData.error) {
           errorMessage = `${errorData.error} (Context: ${errorData.context})`;
@@ -230,7 +230,7 @@ function App() {
       } else if (err.message) {
         errorMessage += `: ${err.message}`;
       }
-      
+
       setError(errorMessage);
       setLoading(false);
     }
@@ -242,19 +242,19 @@ function App() {
       setLoading(true);
       setError(null);
       setProcessingProgress(0);
-      
+
       const formData = new FormData();
-      
+
       // Add configuration parameters
       Object.keys(config).forEach(key => {
         formData.append(key, config[key]);
       });
-      
+
       // Add preprocessing options
       formData.append('do_preprocess', doPreprocess);
       formData.append('do_syllables', doSyllables);
       formData.append('do_cv', doCV);
-      
+
       if (zipFile) {
         // Upload as zip file
         formData.append('zip_file', zipFile);
@@ -270,7 +270,7 @@ function App() {
         setLoading(false);
         return;
       }
-      
+
       const response = await axios.post(`${API_URL}/upload-corpus`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
@@ -280,16 +280,16 @@ function App() {
           setProcessingProgress(percentCompleted);
         }
       });
-      
+
       setCorpusResult(response.data);
       setLoading(false);
       setProcessingProgress(100);
-      
+
     } catch (err) {
       // Enhanced error handling
       const errorData = err.response?.data;
       let errorMessage = 'Corpus processing failed';
-      
+
       if (errorData) {
         if (errorData.context && errorData.error) {
           errorMessage = `${errorData.error} (Context: ${errorData.context})`;
@@ -299,7 +299,7 @@ function App() {
       } else if (err.message) {
         errorMessage += `: ${err.message}`;
       }
-      
+
       setError(errorMessage);
       setLoading(false);
     }
@@ -310,11 +310,11 @@ function App() {
     const { name, value } = e.target;
     setConfig(prev => ({
       ...prev,
-      [name]: name === 'n_size' || name === 'f_min' || 
-              name === 'w' || name === 'wh' || 
-              name === 'we' || name === 'wm' 
-              ? parseInt(value) 
-              : value
+      [name]: name === 'n_size' || name === 'f_min' ||
+        name === 'w' || name === 'wh' ||
+        name === 'we' || name === 'wm'
+        ? parseInt(value)
+        : value
     }));
   };
 
@@ -329,7 +329,7 @@ function App() {
       try {
         setLoading(true);
         setError(null);
-        
+
         // Include preprocessing options in the request
         const response = await axios.post(`${API_URL}/analyze`, {
           text: fileContent,
@@ -339,10 +339,10 @@ function App() {
           do_syllables: doSyllables,
           do_cv: doCV
         });
-        
+
         setAnalysisResult(response.data);
         setLoading(false);
-        
+
         // Get Markov graph data if in static mode
         if (config.definition === 'static') {
           getMarkovGraph();
@@ -351,14 +351,14 @@ function App() {
         // Enhanced error handling
         const errorData = err.response?.data;
         let errorMessage = 'Analysis failed';
-        
+
         if (errorData) {
           if (errorData.context && errorData.error) {
             errorMessage = `${errorData.error} (Context: ${errorData.context})`;
           } else if (errorData.error) {
             errorMessage = errorData.error;
           }
-          
+
           // Add details if available
           if (errorData.details) {
             errorMessage += `\nDetails: ${errorData.details}`;
@@ -366,10 +366,10 @@ function App() {
         } else if (err.message) {
           errorMessage += `: ${err.message}`;
         }
-        
+
         setError(errorMessage);
         setLoading(false);
-        
+
         // Log more details to console for debugging
         if (errorData && errorData.trace) {
           console.error('Server error trace:', errorData.trace);
@@ -387,12 +387,12 @@ function App() {
       const response = await axios.post(`${API_URL}/markov-graph`, {
         n_size: config.n_size
       });
-      
+
       if (response.data.error) {
         setError('Failed to generate Markov graph: ' + response.data.error);
       } else {
         setMarkovGraph({
-          nodes: response.data.nodes.map(node => ({ 
+          nodes: response.data.nodes.map(node => ({
             id: node.id,
             connections: node.connections,
             val: node.connections
@@ -418,14 +418,14 @@ function App() {
   const handleCorpusRowClick = async (fileName) => {
     // Знаходимо вміст файлу
     let content = null;
-    
+
     // Перевіряємо, чи маємо вже вміст файлу в стані
     if (corpusFilesContent[fileName]) {
       content = corpusFilesContent[fileName];
     } else {
       // Якщо вміст файлу ще не збережено, перевіряємо corpusFiles
       const fileObj = corpusFiles.find(f => f.name === fileName);
-      
+
       if (fileObj) {
         // Зчитуємо вміст файлу
         content = await new Promise((resolve) => {
@@ -438,32 +438,32 @@ function App() {
         return;
       }
     }
-    
+
     // Переходимо до режиму аналізу одиночного файлу
     setAnalysisMode('single');
-    
+
     // Створюємо об'єкт File, якщо файл не було знайдено у corpusFiles
     let fileObj = corpusFiles.find(f => f.name === fileName);
     if (!fileObj) {
       fileObj = new File([content], fileName, { type: 'text/plain' });
     }
-    
+
     // Зберігаємо файл та його вміст
     setFile(fileObj);
     setFileContent(content);
-    
+
     // Скидаємо результати попереднього аналізу
     setAnalysisResult(null);
     setSelectedNgram(null);
     setMarkovGraph(null);
-    
+
     // Розраховуємо параметри вікна для нового файлу
     await calculateWindowParams(content);
-    
+
     // Автоматичний аналіз файлу
     try {
       setLoading(true);
-      
+
       const response = await axios.post(`${API_URL}/analyze`, {
         text: content,
         ...config,
@@ -472,25 +472,25 @@ function App() {
         do_syllables: doSyllables,
         do_cv: doCV
       });
-      
+
       setAnalysisResult(response.data);
-      
+
       // Get Markov graph data if in static mode
       if (config.definition === 'static') {
         await getMarkovGraph();
       }
-      
+
       setLoading(false);
     } catch (err) {
       const errorData = err.response?.data;
       let errorMessage = 'Analysis failed';
-      
+
       if (errorData && errorData.error) {
         errorMessage = errorData.error;
       } else if (err.message) {
         errorMessage += `: ${err.message}`;
       }
-      
+
       setError(errorMessage);
       setLoading(false);
     }
@@ -499,10 +499,10 @@ function App() {
   // Get data for distribution graph
   const getDistributionData = () => {
     if (!selectedNgram || !analysisResult?.ngram_data) return [];
-    
+
     const ngramData = analysisResult.ngram_data[selectedNgram];
     if (!ngramData || !ngramData.bool) return [];
-    
+
     return ngramData.bool.map((value, index) => ({
       position: index,
       value: value
@@ -512,10 +512,10 @@ function App() {
   // Get data for fluctuation graph
   const getFluctuationData = () => {
     if (!selectedNgram || !analysisResult?.ngram_data) return [];
-    
+
     const ngramData = analysisResult.ngram_data[selectedNgram];
     if (!ngramData || !ngramData.fa) return [];
-    
+
     const faKeys = Object.keys(ngramData.fa).map(Number);
     return faKeys.map(key => ({
       window: key,
@@ -527,7 +527,7 @@ function App() {
   // Get data for R/alpha scatter plot
   const getRAlphaData = () => {
     if (!analysisResult?.dataframe) return [];
-    
+
     return analysisResult.dataframe.map(row => ({
       ngram: row.ngram,
       R: row.R,
@@ -539,7 +539,7 @@ function App() {
   return (
     <Container fluid>
       {error && <ErrorAlert error={error} onClose={() => setError(null)} />}
-      
+
       <Row className="mb-3">
         <Col md={3}>
           <Card>
@@ -573,8 +573,8 @@ function App() {
                 {analysisMode === 'single' ? (
                   <Form.Group>
                     <Form.Label>Select a txt file for processing:</Form.Label>
-                    <Form.Control 
-                      type="file" 
+                    <Form.Control
+                      type="file"
                       accept=".txt"
                       onChange={handleFileUpload}
                     />
@@ -584,8 +584,8 @@ function App() {
                   <Form.Group>
                     <Form.Label>Select corpus files:</Form.Label>
                     <div className="mb-2">
-                      <Form.Control 
-                        type="file" 
+                      <Form.Control
+                        type="file"
                         accept=".txt"
                         multiple
                         onChange={handleCorpusUpload}
@@ -596,24 +596,24 @@ function App() {
                       </small>
                       <hr />
                       <Form.Label>Or upload a zip archive of .txt files:</Form.Label>
-                      <Form.Control 
-                        type="file" 
+                      <Form.Control
+                        type="file"
                         accept=".zip"
                         onChange={handleZipUpload}
                       />
                     </div>
-                    
+
                     {corpusFiles.length > 0 && (
                       <div className="mt-2">
                         <strong>Selected files: {corpusFiles.length}</strong>
-                        <ul className="small" style={{maxHeight: '100px', overflowY: 'auto'}}>
+                        <ul className="small" style={{ maxHeight: '100px', overflowY: 'auto' }}>
                           {corpusFiles.map((file, index) => (
                             <li key={index}>{file.name}</li>
                           ))}
                         </ul>
                       </div>
                     )}
-                    
+
                     {zipFile && (
                       <div className="mt-2">
                         <strong>Uploaded zip: {zipFile.name}</strong>
@@ -669,7 +669,7 @@ function App() {
                     min={0}
                   />
                 </Form.Group>
-                
+
                 {analysisMode === 'corpus' && (
                   <>
                     <Form.Group className="mt-3">
@@ -682,7 +682,7 @@ function App() {
                         min={0}
                       />
                     </Form.Group>
-                    
+
                     <Form.Group className="mt-3">
                       <Form.Label>Fmin for Lmax:</Form.Label>
                       <Form.Control
@@ -693,7 +693,7 @@ function App() {
                         min={0}
                       />
                     </Form.Group>
-                    
+
                     <Form.Group className="mt-3">
                       <Form.Label>Min shift:</Form.Label>
                       <Form.Select
@@ -779,7 +779,7 @@ function App() {
                       Normalizes text: lowercase, replaces special Ukrainian letters with phonetic equivalents,
                       removes punctuation and other non-letter characters.
                     </Form.Text>
-                    
+
                     <Form.Check
                       type="checkbox"
                       label="Split text into syllables"
@@ -791,7 +791,7 @@ function App() {
                     <Form.Text className="text-muted mb-2" style={{ display: 'block' }}>
                       Splits Ukrainian words into syllables based on phonetic rules.
                     </Form.Text>
-                    
+
                     <Form.Check
                       type="checkbox"
                       label="Convert to Consonant-Vowel (CV) sequences"
@@ -806,8 +806,8 @@ function App() {
                     </Form.Text>
                   </div>
                   {analysisMode === 'single' && file && (doPreprocess || doSyllables || doCV) && (
-                    <Button 
-                      variant="outline-secondary" 
+                    <Button
+                      variant="outline-secondary"
                       size="sm"
                       onClick={handlePreviewText}
                       className="mt-2"
@@ -817,8 +817,8 @@ function App() {
                   )}
                 </Form.Group>
 
-                <Button 
-                  variant="primary" 
+                <Button
+                  variant="primary"
                   className="mt-3 me-2"
                   onClick={handleAnalyze}
                   disabled={loading}
@@ -829,7 +829,7 @@ function App() {
             </Card.Body>
           </Card>
         </Col>
-        
+
         <Col md={9}>
           <Card>
             <Card.Header>
@@ -849,10 +849,10 @@ function App() {
                   <p>Processing data...</p>
                   {analysisMode === 'corpus' && (
                     <div className="mt-3">
-                      <ProgressBar 
-                        now={processingProgress} 
-                        label={`${processingProgress}%`} 
-                        variant="info" 
+                      <ProgressBar
+                        now={processingProgress}
+                        label={`${processingProgress}%`}
+                        variant="info"
                       />
                     </div>
                   )}
@@ -876,24 +876,28 @@ function App() {
                           </thead>
                           <tbody>
                             {analysisResult.dataframe.map((row, index) => (
-                              <tr 
-                                key={index} 
-                                onClick={() => handleNgramSelect(row.ngram)}
-                                className={selectedNgram === row.ngram ? 'table-primary' : ''}
+                              <tr
+                                key={index}
+                                onClick={!row.has_error ? () => handleNgramSelect(row.ngram) : undefined}
+                                className={row.has_error ? "table-danger" : (selectedNgram === row.ngram ? 'table-primary' : '')}
+                                style={{ cursor: row.has_error ? 'not-allowed' : 'pointer' }}
+                                title={row.has_error ?
+                                  `Помилка при обробці n-грами ${row.ngram}` :
+                                  `Клікніть для детального аналізу n-грами ${row.ngram}`}
                               >
                                 <td>{row.rank}</td>
                                 <td>{row.ngram}</td>
                                 <td>{row.F}</td>
-                                <td>{row.R}</td>
-                                <td>{row.a}</td>
-                                <td>{row.b}</td>
-                                <td>{row.goodness}</td>
+                                <td>{row.has_error ? "-" : row.R}</td>
+                                <td>{row.has_error ? "-" : row.a}</td>
+                                <td>{row.has_error ? "-" : row.b}</td>
+                                <td>{row.has_error ? "-" : row.goodness}</td>
                               </tr>
                             ))}
                           </tbody>
                         </Table>
                       )}
-                      
+
                       {activeTab === 'markov' && markovGraph && (
                         <div style={{ height: '380px' }}>
                           <ForceGraph2D
@@ -930,27 +934,29 @@ function App() {
                         </thead>
                         <tbody>
                           {corpusResult.corpus_results.map((row, index) => (
-                            <tr 
+                            <tr
                               key={index}
-                              onClick={() => handleCorpusRowClick(row.file)}
-                              className="cursor-pointer"
-                              style={{ cursor: 'pointer' }}
-                              title={`Клікніть для детального аналізу файлу ${row.file}`}
+                              onClick={!row.has_error ? () => handleCorpusRowClick(row.file) : undefined}
+                              className={row.has_error ? "table-danger" : "cursor-pointer"}
+                              style={{ cursor: row.has_error ? 'not-allowed' : 'pointer' }}
+                              title={row.has_error ?
+                                `Помилка при обробці файлу ${row.file}` :
+                                `Клікніть для детального аналізу файлу ${row.file}`}
                             >
                               <td>{row['№']}</td>
                               <td>{row.file}</td>
-                              <td>{row.F_min}</td>
-                              <td>{row.L}</td>
-                              <td>{row.V}</td>
-                              <td>{row.time}</td>
-                              <td>{Number(row.R_avg).toFixed(4)}</td>
-                              <td>{Number(row.dR).toFixed(4)}</td>
-                              <td>{Number(row.Rw_avg).toFixed(4)}</td>
-                              <td>{Number(row.dRw).toFixed(4)}</td>
-                              <td>{Number(row.b_avg).toFixed(4)}</td>
-                              <td>{Number(row.db).toFixed(4)}</td>
-                              <td>{Number(row.bw_avg).toFixed(4)}</td>
-                              <td>{Number(row.dbw).toFixed(4)}</td>
+                              <td>{row.has_error ? "-" : row.F_min}</td>
+                              <td>{row.has_error ? "-" : row.L}</td>
+                              <td>{row.has_error ? "-" : row.V}</td>
+                              <td>{row.has_error ? "-" : row.time}</td>
+                              <td>{row.has_error ? "-" : Number(row.R_avg).toFixed(4)}</td>
+                              <td>{row.has_error ? "-" : Number(row.dR).toFixed(4)}</td>
+                              <td>{row.has_error ? "-" : Number(row.Rw_avg).toFixed(4)}</td>
+                              <td>{row.has_error ? "-" : Number(row.dRw).toFixed(4)}</td>
+                              <td>{row.has_error ? "-" : Number(row.b_avg).toFixed(4)}</td>
+                              <td>{row.has_error ? "-" : Number(row.db).toFixed(4)}</td>
+                              <td>{row.has_error ? "-" : Number(row.bw_avg).toFixed(4)}</td>
+                              <td>{row.has_error ? "-" : Number(row.dbw).toFixed(4)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -996,7 +1002,7 @@ function App() {
           </Card>
         </Col>
       </Row>
-      
+
       <Row>
         <Col md={12}>
           <Card>
@@ -1018,13 +1024,13 @@ function App() {
             </Card.Body>
           </Card>
         </Col>
-        
-        
+
+
       </Row>
-      
+
       {/* Preview Modal */}
-      <Modal 
-        show={showPreview} 
+      <Modal
+        show={showPreview}
         onHide={() => setShowPreview(false)}
         size="lg"
         centered
