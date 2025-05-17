@@ -13,7 +13,7 @@ import {
 import ForceGraph2D from 'react-force-graph-2d';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
-
+import RLPlotsComponent from './components/RLPlotsComponent/RLPlotsComponent';
 const API_URL = 'http://localhost:5000/api';
 
 function App() {
@@ -57,6 +57,8 @@ function App() {
   const [preprocessedText, setPreprocessedText] = useState('');
   const [showPreview, setShowPreview] = useState(false);
 
+
+  
   // Custom error alert component
   const ErrorAlert = ({ error, onClose }) => {
     // Check if error is a simple string or a multiline message
@@ -840,6 +842,9 @@ function App() {
                 <Nav.Item>
                   <Nav.Link eventKey="markov">Markov Chain</Nav.Link>
                 </Nav.Item>
+                 <Nav.Item>
+    <Nav.Link eventKey="rl-plots">R-L Plots</Nav.Link>
+  </Nav.Item>
               </Nav>
             </Card.Header>
             <Card.Body style={{ height: 'auto', maxHeight: '900px', overflowY: 'auto' }}>
@@ -1004,6 +1009,9 @@ function App() {
       </Row>
 
       <Row>
+      {activeTab === 'rl-plots' && (
+  <RLPlotsComponent corpusResults={corpusResult?.corpus_results || []} />
+)}
         <Col md={12}>
           <Card>
             <Card.Header>Distribution</Card.Header>

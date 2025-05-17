@@ -18,7 +18,10 @@ import shutil
 import zipfile
 import io
 import string
-
+import matplotlib.pyplot as plt
+import random
+import math
+from scipy.fft import fft, fftfreq
 # Initialize Flask app
 app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
@@ -2129,6 +2132,266 @@ def api_get_ngram_data():
     except Exception as e:
         return jsonify({"error": str(e), "trace": traceback.format_exc()}), 500
 
+def compute_fourier_distribution(binary_sequence, shuffle=False):
+    """
+    Обчислює розподіл Фур'є для бінарної послідовності
+    
+    Args:
+        binary_sequence (list): бінарна послідовність (0 і 1)
+        shuffle (bool): чи перемішувати послідовність (для "шуму")
+        
+    Returns:
+        tuple: (частоти, амплітуди)
+    """
+    # Перемішуємо, якщо необхідно
+    if shuffle:
+        sequence = binary_sequence.copy()
+        random.shuffle(sequence)
+    else:
+        sequence = binary_sequence
+    
+    # Обчислюємо FFT
+    N = len(sequence)
+    yf = fft(sequence)
+    
+    # Обчислюємо частоти і амплітуди
+    xf = fftfreq(N)[:N//2]
+    amplitudes = 2.0/N * np.abs(yf[:N//2])
+    
+    return xf, amplitudes
+
+def generate_fourier_plots(binary_sequence, syllable_type, is_waiting_times=False):
+    """
+    Генерує графіки розподілів Фур'є та залежностей сигнал-шум
+    
+    Args:
+        binary_sequence (list): бінарна послідовність (0 і 1)
+        syllable_type (str): тип складу
+        is_waiting_times (bool): чи це аналіз часів очікування
+        
+    Returns:
+        dict: словник з base64-закодованими зображеннями графіків
+    """
+    # Обчислюємо розподіл Фур'є для сигналу
+    xf_signal, amp_signal = compute_fourier_distribution(binary_sequence)
+    
+    # Обчислюємо розподіл Фур'є для шуму (перемішана послідовність)
+    xf_noise, amp_noise = compute_fourier_distribution(binary_sequence, shuffle=True)
+    
+    # Обчислюємо відношення сигнал-шум
+    signal_noise_ratio = amp_signal / amp_noise
+    
+    # Створюємо графіки
+    plots = {}
+    
+    # Графік розподілу Фур'є (сигнал)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(xf_signal, amp_signal, 'b-', label='Сигнал')
+    ax.set_xlabel('Частота')
+    ax.set_ylabel('Амплітуда')
+    title = f'Розподіл Фур\'є для типу складу "{syllable_type}"'
+    if is_waiting_times:
+        title = f'Розподіл Фур\'є для часів очікування (тип складу "{syllable_type}")'
+    ax.set_title(title)
+    ax.grid(True)
+    ax.legend()
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['fourier_signal'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # Графік розподілу Фур'є (шум)
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(xf_noise, amp_noise, 'r-', label='Шум')
+    ax.set_xlabel('Частота')
+    ax.set_ylabel('Амплітуда')
+    title = f'Розподіл Фур\'є для шуму (перемішана послідовність) - тип складу "{syllable_type}"'
+    if is_waiting_times:
+        title = f'Розподіл Фур\'є для шуму (перемішані часи очікування) - тип складу "{syllable_type}"'
+    ax.set_title(title)
+    ax.grid(True)
+    ax.legend()
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['fourier_noise'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # Графік співвідношення сигнал-шум
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(xf_signal, signal_noise_ratio, 'g-')
+    ax.set_xlabel('Частота')
+    ax.set_ylabel('Відношення сигнал/шум')
+    title = f'Відношення сигнал/шум - тип складу "{syllable_type}"'
+    if is_waiting_times:
+        title = f'Відношення сигнал/шум для часів очікування - тип складу "{syllable_type}"'
+    ax.set_title(title)
+    ax.grid(True)
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['signal_noise'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # Графік порівняння сигналу і шуму
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(xf_signal, amp_signal, 'b-', label='Сигнал')
+    ax.plot(xf_noise, amp_noise, 'r-', label='Шум')
+    ax.set_xlabel('Частота')
+    ax.set_ylabel('Амплітуда')
+    title = f'Порівняння сигналу і шуму - тип складу "{syllable_type}"'
+    if is_waiting_times:
+        title = f'Порівняння сигналу і шуму для часів очікування - тип складу "{syllable_type}"'
+    ax.set_title(title)
+    ax.grid(True)
+    ax.legend()
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['comparison'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    return plots
+
+def generate_rl_plots(corpus_results):
+    """
+    Генерує графіки залежностей R_avg(L) та Rw_avg(L) в лінійному та логарифмічному масштабах
+    
+    Args:
+        corpus_results: результати аналізу корпусу текстів
+        
+    Returns:
+        dict: словник з base64-закодованими зображеннями графіків
+    """
+    # Збір даних для графіків
+    lengths = [result['L'] for result in corpus_results]
+    r_avg_values = [result['R_avg'] for result in corpus_results]
+    rw_avg_values = [result['Rw_avg'] for result in corpus_results]
+    
+    # Сортування за довжиною для коректного відображення
+    sorted_data = sorted(zip(lengths, r_avg_values, rw_avg_values))
+    lengths = [x[0] for x in sorted_data]
+    r_avg_values = [x[1] for x in sorted_data]
+    rw_avg_values = [x[2] for x in sorted_data]
+    
+    # Створення графіків
+    plots = {}
+    
+    # 1. R_avg(L) - лінійний масштаб
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(lengths, r_avg_values, 'o-', label='R_avg')
+    ax.set_xlabel('L (довжина тексту)')
+    ax.set_ylabel('R_avg')
+    ax.set_title('Залежність R_avg від довжини тексту (лінійний масштаб)')
+    ax.grid(True)
+    ax.legend()
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['r_avg_linear'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # 2. R_avg(L) - логарифмічний масштаб
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.loglog(lengths, r_avg_values, 'o-', label='R_avg')
+    ax.set_xlabel('L (довжина тексту)')
+    ax.set_ylabel('R_avg')
+    ax.set_title('Залежність R_avg від довжини тексту (логарифмічний масштаб)')
+    ax.grid(True, which="both", ls="--")
+    ax.legend()
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['r_avg_log'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # 3. Rw_avg(L) - лінійний масштаб
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(lengths, rw_avg_values, 'o-', color='green', label='Rw_avg')
+    ax.set_xlabel('L (довжина тексту)')
+    ax.set_ylabel('Rw_avg')
+    ax.set_title('Залежність Rw_avg від довжини тексту (лінійний масштаб)')
+    ax.grid(True)
+    ax.legend()
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['rw_avg_linear'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # 4. Rw_avg(L) - логарифмічний масштаб
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.loglog(lengths, rw_avg_values, 'o-', color='green', label='Rw_avg')
+    ax.set_xlabel('L (довжина тексту)')
+    ax.set_ylabel('Rw_avg')
+    ax.set_title('Залежність Rw_avg від довжини тексту (логарифмічний масштаб)')
+    ax.grid(True, which="both", ls="--")
+    ax.legend()
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['rw_avg_log'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # Додаємо графік з обома залежностями (R_avg та Rw_avg) в логарифмічному масштабі
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.loglog(lengths, r_avg_values, 'o-', label='R_avg')
+    ax.loglog(lengths, rw_avg_values, 'o-', color='green', label='Rw_avg')
+    ax.set_xlabel('L (довжина тексту)')
+    ax.set_ylabel('Коефіцієнт варіації')
+    ax.set_title('Порівняння R_avg та Rw_avg (логарифмічний масштаб)')
+    ax.grid(True, which="both", ls="--")
+    ax.legend()
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['both_log'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    return plots
+
+@app.route('/api/rl-plots', methods=['POST'])
+def api_rl_plots():
+    """API endpoint для генерації графіків R_avg(L) та Rw_avg(L)"""
+    try:
+        data = request.get_json()
+        corpus_results = data.get('corpus_results', [])
+        
+        if not corpus_results:
+            return jsonify({"error": "No corpus results provided"}), 400
+            
+        # Генеруємо графіки
+        plots = generate_rl_plots(corpus_results)
+        
+        return jsonify({
+            "plots": plots,
+            "success": True
+        })
+    except Exception as e:
+        return jsonify({
+            "error": str(e), 
+            "trace": traceback.format_exc(),
+            "context": "RL plots API"
+        }), 500
 
 @app.route('/api/preprocess', methods=['POST'])
 def api_preprocess():
@@ -2165,6 +2428,7 @@ def api_preprocess():
             "trace": traceback.format_exc(),
             "context": "Text preprocessing API"
         }), 500
+
 
 
 if __name__ == "__main__":
