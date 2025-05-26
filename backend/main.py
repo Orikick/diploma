@@ -2150,19 +2150,58 @@ def compute_fourier_distribution(binary_sequence, shuffle=False):
     else:
         sequence = binary_sequence
     
-    # Обчислюємо FFT
-    N = len(sequence)
-    yf = fft(sequence)
+    # Видаляємо DC-компоненту (середнє значення)
+    sequence = np.array(sequence)
+    sequence_centered = sequence - np.mean(sequence)
     
-    # Обчислюємо частоти і амплітуди
-    xf = fftfreq(N)[:N//2]
-    amplitudes = 2.0/N * np.abs(yf[:N//2])
+    # Обчислюємо FFT
+    N = len(sequence_centered)
+    yf = fft(sequence_centered)
+    
+    # Обчислюємо частоти і амплітуди, пропускаючи нульову частоту
+    xf = fftfreq(N)[1:N//2]  # Починаємо з індексу 1, щоб пропустити DC
+    amplitudes = 2.0/N * np.abs(yf[1:N//2])  # Також пропускаємо перший елемент
+    
+    return xf, amplitudes
+
+def compute_fourier_distribution_waiting_times(waiting_times, shuffle=False):
+    """
+    Обчислює розподіл Фур'є для часів очікування з використанням формули Kobayashi-Musha
+    
+    Args:
+        waiting_times (list): часи очікування
+        shuffle (bool): чи перемішувати послідовність
+        
+    Returns:
+        tuple: (частоти, амплітуди)
+    """
+    if not waiting_times or len(waiting_times) < 2:
+        return np.array([]), np.array([])
+    
+    # Перетворюємо в рівномірний ряд згідно з формулою Kobayashi-Musha
+    uniform_sequence = convert_to_uniform_sequence(waiting_times)
+    
+    # Перемішуємо після перетворення, якщо необхідно
+    if shuffle:
+        uniform_sequence = uniform_sequence.copy()
+        np.random.shuffle(uniform_sequence)
+    
+    # Видаляємо DC-компоненту (середнє значення)
+    uniform_sequence_centered = uniform_sequence - np.mean(uniform_sequence)
+    
+    # Обчислюємо FFT
+    N = len(uniform_sequence_centered)
+    yf = fft(uniform_sequence_centered)
+    
+    # Обчислюємо частоти і амплітуди, пропускаючи нульову частоту
+    xf = fftfreq(N)[1:N//2]  # Починаємо з індексу 1
+    amplitudes = 2.0/N * np.abs(yf[1:N//2])  # Пропускаємо перший елемент
     
     return xf, amplitudes
 
 def generate_fourier_plots(binary_sequence, syllable_type, is_waiting_times=False):
     """
-    Генерує графіки розподілів Фур'є та залежностей сигнал-шум
+    Генерує графіки розподілів Фур'є та залежностей сигнал-шум (оновлена версія)
     
     Args:
         binary_sequence (list): бінарна послідовність (0 і 1)
@@ -2178,23 +2217,32 @@ def generate_fourier_plots(binary_sequence, syllable_type, is_waiting_times=Fals
     # Обчислюємо розподіл Фур'є для шуму (перемішана послідовність)
     xf_noise, amp_noise = compute_fourier_distribution(binary_sequence, shuffle=True)
     
+    # Перевіряємо, чи є дані для побудови графіків
+    if len(xf_signal) == 0 or len(amp_signal) == 0:
+        return {}
+    
     # Обчислюємо відношення сигнал-шум
-    signal_noise_ratio = amp_signal / amp_noise
+    epsilon = 1e-10
+    signal_noise_ratio = amp_signal / (amp_noise + epsilon)
     
     # Створюємо графіки
     plots = {}
     
     # Графік розподілу Фур'є (сигнал)
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(xf_signal, amp_signal, 'b-', label='Сигнал')
+    ax.plot(xf_signal, amp_signal, 'b-', label='Сигнал', alpha=0.7, linewidth=2)
     ax.set_xlabel('Частота')
     ax.set_ylabel('Амплітуда')
-    title = f'Розподіл Фур\'є для типу складу "{syllable_type}"'
+    title = f'Розподіл Фур\'є для типу складу "{syllable_type}" (без DC-компоненти)'
     if is_waiting_times:
-        title = f'Розподіл Фур\'є для часів очікування (тип складу "{syllable_type}")'
+        title = f'Розподіл Фур\'є для часів очікування (тип складу "{syllable_type}") (без DC-компоненти)'
     ax.set_title(title)
-    ax.grid(True)
+    ax.grid(True, alpha=0.3)
     ax.legend()
+    
+    # Встановлюємо обмеження осей для кращого відображення
+    if len(amp_signal) > 0:
+        ax.set_ylim(0, max(amp_signal) * 1.1)
     
     # Конвертація в base64
     buf = io.BytesIO()
@@ -2205,15 +2253,19 @@ def generate_fourier_plots(binary_sequence, syllable_type, is_waiting_times=Fals
     
     # Графік розподілу Фур'є (шум)
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(xf_noise, amp_noise, 'r-', label='Шум')
+    ax.plot(xf_noise, amp_noise, 'r-', label='Шум', alpha=0.7, linewidth=2)
     ax.set_xlabel('Частота')
     ax.set_ylabel('Амплітуда')
-    title = f'Розподіл Фур\'є для шуму (перемішана послідовність) - тип складу "{syllable_type}"'
+    title = f'Розподіл Фур\'є для шуму (перемішана послідовність) - тип складу "{syllable_type}" (без DC-компоненти)'
     if is_waiting_times:
-        title = f'Розподіл Фур\'є для шуму (перемішані часи очікування) - тип складу "{syllable_type}"'
+        title = f'Розподіл Фур\'є для шуму (перемішані часи очікування) - тип складу "{syllable_type}" (без DC-компоненти)'
     ax.set_title(title)
-    ax.grid(True)
+    ax.grid(True, alpha=0.3)
     ax.legend()
+    
+    # Встановлюємо обмеження осей
+    if len(amp_noise) > 0:
+        ax.set_ylim(0, max(amp_noise) * 1.1)
     
     # Конвертація в base64
     buf = io.BytesIO()
@@ -2224,14 +2276,14 @@ def generate_fourier_plots(binary_sequence, syllable_type, is_waiting_times=Fals
     
     # Графік співвідношення сигнал-шум
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(xf_signal, signal_noise_ratio, 'g-')
+    ax.plot(xf_signal, signal_noise_ratio, 'g-', alpha=0.8, linewidth=2)
     ax.set_xlabel('Частота')
     ax.set_ylabel('Відношення сигнал/шум')
-    title = f'Відношення сигнал/шум - тип складу "{syllable_type}"'
+    title = f'Відношення сигнал/шум - тип складу "{syllable_type}" (без DC-компоненти)'
     if is_waiting_times:
-        title = f'Відношення сигнал/шум для часів очікування - тип складу "{syllable_type}"'
+        title = f'Відношення сигнал/шум для часів очікування - тип складу "{syllable_type}" (без DC-компоненти)'
     ax.set_title(title)
-    ax.grid(True)
+    ax.grid(True, alpha=0.3)
     
     # Конвертація в base64
     buf = io.BytesIO()
@@ -2242,16 +2294,22 @@ def generate_fourier_plots(binary_sequence, syllable_type, is_waiting_times=Fals
     
     # Графік порівняння сигналу і шуму
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(xf_signal, amp_signal, 'b-', label='Сигнал')
-    ax.plot(xf_noise, amp_noise, 'r-', label='Шум')
+    ax.plot(xf_signal, amp_signal, 'b-', label='Сигнал', alpha=0.7, linewidth=2)
+    ax.plot(xf_noise, amp_noise, 'r-', label='Шум', alpha=0.7, linewidth=2)
     ax.set_xlabel('Частота')
     ax.set_ylabel('Амплітуда')
-    title = f'Порівняння сигналу і шуму - тип складу "{syllable_type}"'
+    title = f'Порівняння сигналу і шуму - тип складу "{syllable_type}" (без DC-компоненти)'
     if is_waiting_times:
-        title = f'Порівняння сигналу і шуму для часів очікування - тип складу "{syllable_type}"'
+        title = f'Порівняння сигналу і шуму для часів очікування - тип складу "{syllable_type}" (без DC-компоненти)'
     ax.set_title(title)
-    ax.grid(True)
+    ax.grid(True, alpha=0.3)
     ax.legend()
+    
+    # Встановлюємо обмеження осей
+    max_amp = max(max(amp_signal) if len(amp_signal) > 0 else 0, 
+                  max(amp_noise) if len(amp_noise) > 0 else 0)
+    if max_amp > 0:
+        ax.set_ylim(0, max_amp * 1.1)
     
     # Конвертація в base64
     buf = io.BytesIO()
@@ -2261,7 +2319,6 @@ def generate_fourier_plots(binary_sequence, syllable_type, is_waiting_times=Fals
     plt.close(fig)
     
     return plots
-
 def generate_rl_plots(corpus_results):
     """
     Генерує графіки залежностей R_avg(L) та Rw_avg(L) в лінійному та логарифмічному масштабах
@@ -2288,7 +2345,7 @@ def generate_rl_plots(corpus_results):
     
     # 1. R_avg(L) - лінійний масштаб
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(lengths, r_avg_values, 'o-', label='R_avg')
+    ax.plot(lengths, r_avg_values, 'o-', color='blue', label='R_avg')
     ax.set_xlabel('L (довжина тексту)')
     ax.set_ylabel('R_avg')
     ax.set_title('Залежність R_avg від довжини тексту (лінійний масштаб)')
@@ -2304,7 +2361,7 @@ def generate_rl_plots(corpus_results):
     
     # 2. R_avg(L) - логарифмічний масштаб
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.loglog(lengths, r_avg_values, 'o-', label='R_avg')
+    ax.loglog(lengths, r_avg_values, 'o-', color='blue', label='R_avg')
     ax.set_xlabel('L (довжина тексту)')
     ax.set_ylabel('R_avg')
     ax.set_title('Залежність R_avg від довжини тексту (логарифмічний масштаб)')
@@ -2352,7 +2409,7 @@ def generate_rl_plots(corpus_results):
     
     # Додаємо графік з обома залежностями (R_avg та Rw_avg) в логарифмічному масштабі
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.loglog(lengths, r_avg_values, 'o-', label='R_avg')
+    ax.loglog(lengths, r_avg_values, 'o-', color='blue', label='R_avg')
     ax.loglog(lengths, rw_avg_values, 'o-', color='green', label='Rw_avg')
     ax.set_xlabel('L (довжина тексту)')
     ax.set_ylabel('Коефіцієнт варіації')
@@ -2369,28 +2426,244 @@ def generate_rl_plots(corpus_results):
     
     return plots
 
+# Додайте цей код до backend/main.py
+
 @app.route('/api/rl-plots', methods=['POST'])
 def api_rl_plots():
-    """API endpoint для генерації графіків R_avg(L) та Rw_avg(L)"""
+    """Generate R_avg(L) and Rw_avg(L) dependency plots"""
     try:
         data = request.get_json()
         corpus_results = data.get('corpus_results', [])
         
         if not corpus_results:
-            return jsonify({"error": "No corpus results provided"}), 400
+            return jsonify({"success": False, "error": "No corpus results provided"}), 400
+        
+        # Підготовка даних для графіків
+        valid_results = []
+        artificial_results = []
+        
+        for result in corpus_results:
+            # Пропускаємо файли з помилками
+            if result.get('has_error', False) or '-' in str(result.get('L', '-')):
+                continue
+                
+            # Перетворення всіх значень до числових типів
+            processed_result = {
+                'file': result.get('file', ''),
+                'L': float(result.get('L', 0)),
+                'R_avg': float(result.get('R_avg', 0)),
+                'Rw_avg': float(result.get('Rw_avg', 0)),
+                'b_avg': float(result.get('b_avg', 0)),
+                'bw_avg': float(result.get('bw_avg', 0))
+            }
             
-        # Генеруємо графіки
-        plots = generate_rl_plots(corpus_results)
+            # Визначення, чи є текст "штучним"
+            file_name = processed_result['file'].lower()
+            is_artificial = ('artificial' in file_name or 'synth' in file_name or 
+                             'штучний' in file_name or 'синтет' in file_name or
+                             'штучн' in file_name or 'artificial_' in file_name)
+            
+            if is_artificial:
+                artificial_results.append(processed_result)
+            else:
+                valid_results.append(processed_result)
+        
+        # Перевірка наявності даних для побудови графіків
+        if not valid_results and not artificial_results:
+            return jsonify({"success": False, "error": "No valid data found in corpus results"}), 400
+        
+        # Імпортування необхідних бібліотек для графіків
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import io
+        import base64
+        
+        # Функція для створення графіка
+        def create_plot(x_data_regular, y_data_regular, x_data_artificial, y_data_artificial, 
+                        title, xlabel, ylabel, log_x=False, log_y=False):
+            plt.figure(figsize=(10, 6))
+            
+            # Побудова точок для звичайних текстів
+            if x_data_regular and y_data_regular:
+                if log_x and log_y:
+                    plt.loglog(x_data_regular, y_data_regular, 'o', label='Звичайні тексти', color='blue')
+                elif log_x:
+                    plt.semilogx(x_data_regular, y_data_regular, 'o', label='Звичайні тексти', color='blue')
+                elif log_y:
+                    plt.semilogy(x_data_regular, y_data_regular, 'o', label='Звичайні тексти', color='blue')
+                else:
+                    plt.plot(x_data_regular, y_data_regular, 'o', label='Звичайні тексти', color='blue')
+            
+            # Побудова точок для штучних текстів
+            if x_data_artificial and y_data_artificial:
+                if log_x and log_y:
+                    plt.loglog(x_data_artificial, y_data_artificial, '^', label='Штучні тексти', color='red')
+                elif log_x:
+                    plt.semilogx(x_data_artificial, y_data_artificial, '^', label='Штучні тексти', color='red')
+                elif log_y:
+                    plt.semilogy(x_data_artificial, y_data_artificial, '^', label='Штучні тексти', color='red')
+                else:
+                    plt.plot(x_data_artificial, y_data_artificial, '^', label='Штучні тексти', color='red')
+            
+            # Додавання тренду (лінії регресії) для всіх даних
+            all_x = x_data_regular + x_data_artificial
+            all_y = y_data_regular + y_data_artificial
+            
+            if all_x and all_y:
+                if log_x and log_y:
+                    # Регресія в логарифмічному масштабі
+                    log_x_data = np.log10(all_x)
+                    log_y_data = np.log10(all_y)
+                    coeffs = np.polyfit(log_x_data, log_y_data, 1)
+                    polynomial = np.poly1d(coeffs)
+                    
+                    # Побудова лінії тренду
+                    x_range = np.logspace(np.log10(min(all_x)), np.log10(max(all_x)), 100)
+                    log_x_range = np.log10(x_range)
+                    log_y_range = polynomial(log_x_range)
+                    y_range = 10 ** log_y_range
+                    
+                    plt.loglog(x_range, y_range, '--', color='green', 
+                             label=f'Тренд: y = {10**coeffs[1]:.4f} * x^{coeffs[0]:.4f}')
+                else:
+                    # Звичайна лінійна регресія
+                    coeffs = np.polyfit(all_x, all_y, 1)
+                    polynomial = np.poly1d(coeffs)
+                    
+                    # Побудова лінії тренду
+                    x_range = np.linspace(min(all_x), max(all_x), 100)
+                    y_range = polynomial(x_range)
+                    
+                    if log_x:
+                        plt.semilogx(x_range, y_range, '--', color='green', 
+                                   label=f'Тренд: y = {coeffs[1]:.4f} + {coeffs[0]:.4f} * x')
+                    elif log_y:
+                        plt.semilogy(x_range, y_range, '--', color='green', 
+                                   label=f'Тренд: y = {coeffs[1]:.4f} + {coeffs[0]:.4f} * x')
+                    else:
+                        plt.plot(x_range, y_range, '--', color='green', 
+                               label=f'Тренд: y = {coeffs[1]:.4f} + {coeffs[0]:.4f} * x')
+            
+            plt.title(title)
+            plt.xlabel(xlabel)
+            plt.ylabel(ylabel)
+            plt.grid(True, alpha=0.3)
+            plt.legend()
+            
+            # Додавання анотацій для кожної точки
+            for i, (x, y, result) in enumerate(zip(x_data_regular, y_data_regular, valid_results)):
+                plt.annotate(f"{i+1}", (x, y), xytext=(5, 5), textcoords='offset points', fontsize=8)
+            
+            for i, (x, y, result) in enumerate(zip(x_data_artificial, y_data_artificial, artificial_results)):
+                plt.annotate(f"A{i+1}", (x, y), xytext=(5, 5), textcoords='offset points', fontsize=8, color='red')
+            
+            # Побудова таблиці з легендою внизу графіка
+            table_data = []
+            for i, result in enumerate(valid_results):
+                table_data.append([f"{i+1}", result['file'], f"{result['L']:.0f}", f"{result['R_avg']:.4f}", f"{result['Rw_avg']:.4f}"])
+            
+            for i, result in enumerate(artificial_results):
+                table_data.append([f"A{i+1}", result['file'], f"{result['L']:.0f}", f"{result['R_avg']:.4f}", f"{result['Rw_avg']:.4f}"])
+            
+            # Збереження графіка в байтовий потік
+            buf = io.BytesIO()
+            plt.tight_layout()
+            plt.savefig(buf, format='png', dpi=100)
+            buf.seek(0)
+            
+            # Конвертація зображення в base64
+            img_str = base64.b64encode(buf.getvalue()).decode('utf-8')
+            buf.close()
+            plt.close()
+            
+            return img_str
+        
+        # Створення різних графіків
+        plots = {}
+        
+        # Підготовка даних
+        x_regular = [r['L'] for r in valid_results]
+        y_r_avg_regular = [r['R_avg'] for r in valid_results]
+        y_rw_avg_regular = [r['Rw_avg'] for r in valid_results]
+        
+        x_artificial = [r['L'] for r in artificial_results]
+        y_r_avg_artificial = [r['R_avg'] for r in artificial_results]
+        y_rw_avg_artificial = [r['Rw_avg'] for r in artificial_results]
+        
+        # Генерація всіх графіків
+        plots['r_avg_linear'] = create_plot(
+            x_regular, y_r_avg_regular, 
+            x_artificial, y_r_avg_artificial,
+            'Залежність R_avg від довжини тексту (лінійний масштаб)',
+            'Довжина тексту (L)', 'R_avg'
+        )
+        
+        plots['r_avg_log'] = create_plot(
+            x_regular, y_r_avg_regular, 
+            x_artificial, y_r_avg_artificial,
+            'Залежність R_avg від довжини тексту (логарифмічний масштаб)',
+            'Довжина тексту (L)', 'R_avg', 
+            log_x=True, log_y=True
+        )
+        
+        plots['rw_avg_linear'] = create_plot(
+            x_regular, y_rw_avg_regular, 
+            x_artificial, y_rw_avg_artificial,
+            'Залежність Rw_avg від довжини тексту (лінійний масштаб)',
+            'Довжина тексту (L)', 'Rw_avg'
+        )
+        
+        plots['rw_avg_log'] = create_plot(
+            x_regular, y_rw_avg_regular, 
+            x_artificial, y_rw_avg_artificial,
+            'Залежність Rw_avg від довжини тексту (логарифмічний масштаб)',
+            'Довжина тексту (L)', 'Rw_avg', 
+            log_x=True, log_y=True
+        )
+        
+        # Графік, що показує обидва параметри в логарифмічному масштабі
+        plt.figure(figsize=(10, 6))
+        
+        if x_regular:
+            plt.loglog(x_regular, y_r_avg_regular, 'o', label='R_avg (звичайні тексти)', color='blue')
+            plt.loglog(x_regular, y_rw_avg_regular, 's', label='Rw_avg (звичайні тексти)', color='green')
+        
+        if x_artificial:
+            plt.loglog(x_artificial, y_r_avg_artificial, '^', label='R_avg (штучні тексти)', color='red')
+            plt.loglog(x_artificial, y_rw_avg_artificial, 'd', label='Rw_avg (штучні тексти)', color='orange')
+        
+        plt.title('Порівняння залежностей R_avg та Rw_avg (логарифмічний масштаб)')
+        plt.xlabel('Довжина тексту (L)')
+        plt.ylabel('Значення R_avg / Rw_avg')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        
+        # Збереження графіка
+        buf = io.BytesIO()
+        plt.tight_layout()
+        plt.savefig(buf, format='png', dpi=100)
+        buf.seek(0)
+        plots['both_log'] = base64.b64encode(buf.getvalue()).decode('utf-8')
+        buf.close()
+        plt.close()
         
         return jsonify({
+            "success": True,
             "plots": plots,
-            "success": True
+            "stats": {
+                "valid_count": len(valid_results),
+                "artificial_count": len(artificial_results)
+            }
         })
+        
     except Exception as e:
+        import traceback
         return jsonify({
-            "error": str(e), 
-            "trace": traceback.format_exc(),
-            "context": "RL plots API"
+            "success": False, 
+            "error": str(e),
+            "trace": traceback.format_exc()
         }), 500
 
 @app.route('/api/preprocess', methods=['POST'])
@@ -2427,6 +2700,560 @@ def api_preprocess():
             "error": str(e), 
             "trace": traceback.format_exc(),
             "context": "Text preprocessing API"
+        }), 500
+
+def analyze_syllable_types(text):
+    """
+    Аналізує типи складів у тексті та повертає найчастіші типи
+    
+    Args:
+        text (str): вхідний текст
+        
+    Returns:
+        dict: інформація про типи складів та їх частоти
+    """
+    # Препроцесинг тексту
+    processed_text = preprocess_text(text)
+    
+    # Розбиття на склади
+    syllable_text = split_text_into_syllables(processed_text)
+    
+    # Конвертація у CV-послідовність
+    cv_text = convert_to_cv(syllable_text)
+    
+    # Розділення на склади (кожен склад - це одиниця CV-паттерну між пробілами)
+    syllables = cv_text.split()
+    
+    # Підрахунок частот типів складів
+    syllable_counts = {}
+    for syllable in syllables:
+        if syllable:  # Пропускаємо порожні рядки
+            syllable_counts[syllable] = syllable_counts.get(syllable, 0) + 1
+    
+    # Сортування за частотою
+    sorted_syllables = sorted(syllable_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    # Отримуємо топ-2 найчастіших
+    most_frequent = sorted_syllables[0] if len(sorted_syllables) > 0 else (None, 0)
+    second_frequent = sorted_syllables[1] if len(sorted_syllables) > 1 else (None, 0)
+    
+    return {
+        'syllables': syllables,
+        'syllable_counts': syllable_counts,
+        'most_frequent': {
+            'type': most_frequent[0],
+            'count': most_frequent[1]
+        },
+        'second_frequent': {
+            'type': second_frequent[0],
+            'count': second_frequent[1]
+        },
+        'total_syllables': len(syllables)
+    }
+
+def create_binary_sequence(syllables, target_syllable_type):
+    """
+    Створює бінарну послідовність позицій target_syllable_type у списку складів
+    
+    Args:
+        syllables (list): список складів
+        target_syllable_type (str): тип складу для пошуку
+        
+    Returns:
+        list: бінарна послідовність (1 якщо склад відповідає типу, 0 інакше)
+    """
+    binary_sequence = []
+    for syllable in syllables:
+        binary_sequence.append(1 if syllable == target_syllable_type else 0)
+    return binary_sequence
+
+def process_file_fourier_analysis(filename, file_content):
+    """
+    Обробляє один файл для аналізу Фур'є
+    
+    Args:
+        filename (str): ім'я файлу
+        file_content (str): вміст файлу
+        
+    Returns:
+        dict: результати аналізу файлу
+    """
+    try:
+        # Аналізуємо типи складів
+        syllable_analysis = analyze_syllable_types(file_content)
+        
+        # Створюємо бінарні послідовності для найчастіших типів складів
+        most_frequent_type = syllable_analysis['most_frequent']['type']
+        second_frequent_type = syllable_analysis['second_frequent']['type']
+        
+        result = {
+            'filename': filename,
+            'text_length': len(file_content),
+            'syllables_count': syllable_analysis['total_syllables'],
+            'most_frequent_syllable': syllable_analysis['most_frequent'],
+            'second_frequent_syllable': syllable_analysis['second_frequent']
+        }
+        
+        # Генеруємо графіки Фур'є для найчастішого типу складу
+        if most_frequent_type:
+            binary_seq_most = create_binary_sequence(syllable_analysis['syllables'], most_frequent_type)
+            if sum(binary_seq_most) > 0:  # Перевіряємо, що є хоча б одне входження
+                fourier_plots_most = generate_fourier_plots(binary_seq_most, most_frequent_type)
+                result['fourier_plots'] = fourier_plots_most
+                result['binary_sequence_length'] = len(binary_seq_most)
+                result['target_syllable_occurrences'] = sum(binary_seq_most)
+        
+        # Додаємо аналіз для другого найчастішого типу
+        if second_frequent_type:
+            binary_seq_second = create_binary_sequence(syllable_analysis['syllables'], second_frequent_type)
+            if sum(binary_seq_second) > 0:
+                fourier_plots_second = generate_fourier_plots(binary_seq_second, second_frequent_type)
+                result['fourier_plots_second'] = fourier_plots_second
+        
+        result['error'] = False
+        return result
+        
+    except Exception as e:
+        print(f"Error processing file {filename}: {str(e)}")
+        traceback.print_exc()
+        return {
+            'filename': filename,
+            'error': True,
+            'error_message': str(e),
+            'text_length': len(file_content),
+            'syllables_count': 0,
+            'most_frequent_syllable': {'type': None, 'count': 0},
+            'second_frequent_syllable': {'type': None, 'count': 0}
+        }
+
+def convert_to_uniform_sequence(intervals):
+    """
+    Перетворює нерівномірні інтервали в рівномірний ряд за формулою Kobayashi-Musha
+    
+    Args:
+        intervals (list): список інтервалів часу
+        
+    Returns:
+        numpy.array: рівномірний ряд висот імпульсів
+    """
+    if len(intervals) == 0:
+        return np.array([])
+    
+    N = len(intervals)
+    T = sum(intervals)  # загальна довжина часу
+    Delta_T = T / N     # середній інтервал часу
+    
+    # Застосовуємо формулу Kobayashi-Musha (1):
+    # h_j = (T_{j+1} - T_j)((j - 1) · ΔT - Σ_{k=0}^{j-1} T_k)/T_j + T_j
+    
+    h = np.zeros(N)
+    cumsum_T = 0
+    
+    for j in range(N):
+        T_j = intervals[j]
+        
+        # Розраховуємо кумулятивну суму до j-1
+        if j > 0:
+            cumsum_T += intervals[j-1]
+        
+        # Застосовуємо формулу
+        if j < N - 1:
+            T_j_plus_1 = intervals[j + 1]
+        else:
+            T_j_plus_1 = T_j  # для останнього елементу
+            
+        h[j] = (T_j_plus_1 - T_j) * ((j * Delta_T - cumsum_T) / T_j) + T_j
+    
+    return h
+
+def analyze_syllable_waiting_times(text):
+    """
+    Аналізує часи очікування для найчастіших типів складів у тексті
+    
+    Args:
+        text (str): вхідний текст
+        
+    Returns:
+        dict: інформація про типи складів, їх позиції та часи очікування
+    """
+    # Препроцесинг тексту
+    processed_text = preprocess_text(text)
+    
+    # Розбиття на склади
+    syllable_text = split_text_into_syllables(processed_text)
+    
+    # Конвертація у CV-послідовність
+    cv_text = convert_to_cv(syllable_text)
+    
+    # Розділення на склади
+    syllables = cv_text.split()
+    
+    # Підрахунок частот типів складів
+    syllable_counts = {}
+    for syllable in syllables:
+        if syllable:
+            syllable_counts[syllable] = syllable_counts.get(syllable, 0) + 1
+    
+    # Сортування за частотою
+    sorted_syllables = sorted(syllable_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    # Отримуємо топ-2 найчастіших
+    most_frequent = sorted_syllables[0] if len(sorted_syllables) > 0 else (None, 0)
+    second_frequent = sorted_syllables[1] if len(sorted_syllables) > 1 else (None, 0)
+    
+    # Знаходимо позиції найчастіших типів складів
+    result = {
+        'syllables': syllables,
+        'syllable_counts': syllable_counts,
+        'most_frequent': {
+            'type': most_frequent[0],
+            'count': most_frequent[1],
+            'positions': [],
+            'waiting_times': []
+        },
+        'second_frequent': {
+            'type': second_frequent[0],
+            'count': second_frequent[1],
+            'positions': [],
+            'waiting_times': []
+        },
+        'total_syllables': len(syllables)
+    }
+    
+    # Знаходимо позиції та розраховуємо часи очікування
+    for syllable_info in [result['most_frequent'], result['second_frequent']]:
+        if syllable_info['type']:
+            # Знаходимо всі позиції цього типу складу
+            positions = []
+            for i, syllable in enumerate(syllables):
+                if syllable == syllable_info['type']:
+                    positions.append(i)
+            
+            syllable_info['positions'] = positions
+            
+            # Розраховуємо часи очікування (інтервали між входженнями)
+            if len(positions) > 1:
+                waiting_times = []
+                for i in range(1, len(positions)):
+                    waiting_times.append(positions[i] - positions[i-1])
+                syllable_info['waiting_times'] = waiting_times
+            else:
+                syllable_info['waiting_times'] = []
+    
+    return result
+
+def create_binary_sequence_waiting_times(waiting_times):
+    """
+    Створює бінарну послідовність для часів очікування
+    Кожен час очікування представляється як послідовність нулів завершена одиницею
+    
+    Args:
+        waiting_times (list): список часів очікування
+        
+    Returns:
+        list: бінарна послідовність
+    """
+    if not waiting_times:
+        return []
+    
+    binary_sequence = []
+    for wt in waiting_times:
+        # Додаємо wt-1 нулів та одну одиниці
+        binary_sequence.extend([0] * (wt - 1))
+        binary_sequence.append(1)
+    
+    return binary_sequence
+
+def compute_fourier_distribution_waiting_times(waiting_times, shuffle=False):
+    """
+    Обчислює розподіл Фур'є для часів очікування з використанням формули Kobayashi-Musha
+    
+    Args:
+        waiting_times (list): часи очікування
+        shuffle (bool): чи перемішувати послідовність
+        
+    Returns:
+        tuple: (частоти, амплітуди)
+    """
+    if not waiting_times or len(waiting_times) < 2:
+        return np.array([]), np.array([])
+    
+    # Перетворюємо в рівномірний ряд згідно з формулою Kobayashi-Musha
+    uniform_sequence = convert_to_uniform_sequence(waiting_times)
+    
+    # Перемішуємо після перетворення, якщо необхідно
+    if shuffle:
+        uniform_sequence = uniform_sequence.copy()
+        np.random.shuffle(uniform_sequence)
+    
+    # Видаляємо DC-компоненту (середнє значення)
+    uniform_sequence_centered = uniform_sequence - np.mean(uniform_sequence)
+    
+    # Обчислюємо FFT
+    N = len(uniform_sequence_centered)
+    yf = fft(uniform_sequence_centered)
+    
+    # Обчислюємо частоти і амплітуди, пропускаючи нульову частоту
+    xf = fftfreq(N)[1:N//2]  # Починаємо з індексу 1
+    amplitudes = 2.0/N * np.abs(yf[1:N//2])  # Пропускаємо перший елемент
+    
+    return xf, amplitudes
+
+def generate_fourier_plots_waiting_times(waiting_times, syllable_type):
+    """
+    Генерує графіки розподілів Фур'є та залежностей сигнал-шум для часів очікування (оновлена версія)
+    
+    Args:
+        waiting_times (list): часи очікування
+        syllable_type (str): тип складу
+        
+    Returns:
+        dict: словник з base64-закодованими зображеннями графіків
+    """
+    if not waiting_times or len(waiting_times) < 2:
+        return {}
+    
+    # Обчислюємо розподіл Фур'є для сигналу (часи очікування)
+    xf_signal, amp_signal = compute_fourier_distribution_waiting_times(waiting_times)
+    
+    # Обчислюємо розподіл Фур'є для шуму (перемішані після перетворення)
+    xf_noise, amp_noise = compute_fourier_distribution_waiting_times(waiting_times, shuffle=True)
+    
+    # Перевіряємо, чи є дані для побудови графіків
+    if len(xf_signal) == 0 or len(amp_signal) == 0:
+        return {}
+    
+    # Обчислюємо відношення сигнал-шум
+    epsilon = 1e-10
+    signal_noise_ratio = amp_signal / (amp_noise + epsilon)
+    
+    # Створюємо графіки
+    plots = {}
+    
+    # Графік розподілу Фур'є (сигнал) - часи очікування
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(xf_signal, amp_signal, 'b-', label='Сигнал (часи очікування)', alpha=0.7, linewidth=2)
+    ax.set_xlabel('Частота')
+    ax.set_ylabel('Амплітуда')
+    ax.set_title(f'Розподіл Фур\'є для часів очікування (тип складу "{syllable_type}") (без DC-компоненти)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    # Встановлюємо обмеження осей
+    if len(amp_signal) > 0:
+        ax.set_ylim(0, max(amp_signal) * 1.1)
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['fourier_signal'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # Графік розподілу Фур'є (шум) - часи очікування
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(xf_noise, amp_noise, 'r-', label='Шум (перемішані часи очікування)', alpha=0.7, linewidth=2)
+    ax.set_xlabel('Частота')
+    ax.set_ylabel('Амплітуда')
+    ax.set_title(f'Розподіл Фур\'є для шуму часів очікування (тип складу "{syllable_type}") (без DC-компоненти)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    # Встановлюємо обмеження осей
+    if len(amp_noise) > 0:
+        ax.set_ylim(0, max(amp_noise) * 1.1)
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['fourier_noise'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # Графік співвідношення сигнал-шум для часів очікування
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(xf_signal, signal_noise_ratio, 'g-', alpha=0.8, linewidth=2)
+    ax.set_xlabel('Частота')
+    ax.set_ylabel('Відношення сигнал/шум')
+    ax.set_title(f'Відношення сигнал/шум для часів очікування (тип складу "{syllable_type}") (без DC-компоненти)')
+    ax.grid(True, alpha=0.3)
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['signal_noise'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    # Графік порівняння сигналу і шуму для часів очікування
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(xf_signal, amp_signal, 'b-', label='Сигнал (часи очікування)', alpha=0.7, linewidth=2)
+    ax.plot(xf_noise, amp_noise, 'r-', label='Шум (перемішані часи очікування)', alpha=0.7, linewidth=2)
+    ax.set_xlabel('Частота')
+    ax.set_ylabel('Амплітуда')
+    ax.set_title(f'Порівняння сигналу і шуму для часів очікування (тип складу "{syllable_type}") (без DC-компоненти)')
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    
+    # Встановлюємо обмеження осей
+    max_amp = max(max(amp_signal) if len(amp_signal) > 0 else 0, 
+                  max(amp_noise) if len(amp_noise) > 0 else 0)
+    if max_amp > 0:
+        ax.set_ylim(0, max_amp * 1.1)
+    
+    # Конвертація в base64
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png')
+    buf.seek(0)
+    plots['comparison'] = base64.b64encode(buf.read()).decode('utf-8')
+    plt.close(fig)
+    
+    return plots
+def process_file_fourier_analysis_extended(filename, file_content):
+    """
+    Розширена обробка файлу для аналізу Фур'є з часами очікування
+    
+    Args:
+        filename (str): ім'я файлу
+        file_content (str): вміст файлу
+        
+    Returns:
+        dict: результати аналізу файлу
+    """
+    try:
+        # Аналізуємо типи складів з часами очікування
+        syllable_analysis = analyze_syllable_waiting_times(file_content)
+        
+        # Створюємо бінарні послідовності для найчастіших типів складів
+        most_frequent_type = syllable_analysis['most_frequent']['type']
+        second_frequent_type = syllable_analysis['second_frequent']['type']
+        
+        result = {
+            'filename': filename,
+            'text_length': len(file_content),
+            'syllables_count': syllable_analysis['total_syllables'],
+            'most_frequent_syllable': syllable_analysis['most_frequent'],
+            'second_frequent_syllable': syllable_analysis['second_frequent']
+        }
+        
+        # Генеруємо графіки Фур'є для найчастішого типу складу (позиції)
+        if most_frequent_type:
+            binary_seq_most = create_binary_sequence(syllable_analysis['syllables'], most_frequent_type)
+            if sum(binary_seq_most) > 0:
+                # Спочатку перетворюємо, потім перемішуємо для шуму
+                fourier_plots_most = generate_fourier_plots(binary_seq_most, most_frequent_type)
+                result['fourier_plots'] = fourier_plots_most
+                result['binary_sequence_length'] = len(binary_seq_most)
+                result['target_syllable_occurrences'] = sum(binary_seq_most)
+            
+            # Генеруємо графіки Фур'є для часів очікування найчастішого типу
+            waiting_times_most = syllable_analysis['most_frequent']['waiting_times']
+            if waiting_times_most and len(waiting_times_most) > 1:
+                fourier_plots_wt_most = generate_fourier_plots_waiting_times(waiting_times_most, most_frequent_type)
+                result['fourier_plots_waiting_times'] = fourier_plots_wt_most
+                result['waiting_times_count'] = len(waiting_times_most)
+        
+        # Додаємо аналіз для другого найчастішого типу
+        if second_frequent_type:
+            binary_seq_second = create_binary_sequence(syllable_analysis['syllables'], second_frequent_type)
+            if sum(binary_seq_second) > 0:
+                fourier_plots_second = generate_fourier_plots(binary_seq_second, second_frequent_type)
+                result['fourier_plots_second'] = fourier_plots_second
+            
+            # Генеруємо графіки Фур'є для часів очікування другого найчастішого типу
+            waiting_times_second = syllable_analysis['second_frequent']['waiting_times']
+            if waiting_times_second and len(waiting_times_second) > 1:
+                fourier_plots_wt_second = generate_fourier_plots_waiting_times(waiting_times_second, second_frequent_type)
+                result['fourier_plots_waiting_times_second'] = fourier_plots_wt_second
+        
+        result['error'] = False
+        return result
+        
+    except Exception as e:
+        print(f"Error processing file {filename}: {str(e)}")
+        traceback.print_exc()
+        return {
+            'filename': filename,
+            'error': True,
+            'error_message': str(e),
+            'text_length': len(file_content),
+            'syllables_count': 0,
+            'most_frequent_syllable': {'type': None, 'count': 0, 'waiting_times': []},
+            'second_frequent_syllable': {'type': None, 'count': 0, 'waiting_times': []}
+        }
+
+@app.route('/api/fourier-analysis', methods=['POST'])
+def api_fourier_analysis():
+    """API endpoint для аналізу Фур'є типів складів у множинних файлах (оновлений з часами очікування)"""
+    try:
+        # Отримуємо файли з запиту
+        if 'files[]' not in request.files:
+            return jsonify({"error": "Не знайдено файлів у запиті"}), 400
+        
+        uploaded_files = request.files.getlist('files[]')
+        
+        if not uploaded_files:
+            return jsonify({"error": "Не завантажено жодного файлу"}), 400
+        
+        start_time = time()
+        file_analyses = []
+        total_syllables = 0
+        
+        for file in uploaded_files:
+            if file.filename.endswith('.txt'):
+                try:
+                    # Читаємо вміст файлу
+                    content = file.read().decode('utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        content = file.read().decode('latin-1')
+                    except Exception as e:
+                        print(f"Could not decode file {file.filename}: {str(e)}")
+                        # Додаємо запис про помилку
+                        file_analyses.append({
+                            'filename': file.filename,
+                            'error': True,
+                            'error_message': f"Encoding error: {str(e)}",
+                            'text_length': 0,
+                            'syllables_count': 0,
+                            'most_frequent_syllable': {'type': None, 'count': 0},
+                            'second_frequent_syllable': {'type': None, 'count': 0}
+                        })
+                        continue
+                
+                # Обробляємо файл з розширеним аналізом
+                analysis_result = process_file_fourier_analysis_extended(file.filename, content)
+                file_analyses.append(analysis_result)
+                
+                if not analysis_result.get('error', False):
+                    total_syllables += analysis_result.get('syllables_count', 0)
+            else:
+                # Файл не є .txt файлом
+                file_analyses.append({
+                    'filename': file.filename,
+                    'error': True,
+                    'error_message': "Файл не є текстовим (.txt)",
+                    'text_length': 0,
+                    'syllables_count': 0,
+                    'most_frequent_syllable': {'type': None, 'count': 0},
+                    'second_frequent_syllable': {'type': None, 'count': 0}
+                })
+        
+        processing_time = time() - start_time
+        
+        return jsonify({
+            'success': True,
+            'file_analyses': file_analyses,
+            'total_files_processed': len(file_analyses),
+            'total_syllables_analyzed': total_syllables,
+            'processing_time': processing_time
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Помилка аналізу Фур'є: {str(e)}", 
+            "trace": traceback.format_exc(),
+            "context": "Fourier analysis API"
         }), 500
 
 

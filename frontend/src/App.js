@@ -1,4 +1,3 @@
-// src/App.jsx
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
@@ -14,6 +13,8 @@ import ForceGraph2D from 'react-force-graph-2d';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import './App.css';
 import RLPlotsComponent from './components/RLPlotsComponent/RLPlotsComponent';
+import FourierAnalysisComponent from './components/FourierAnalysisComponent/FourierAnalysisComponent';
+
 const API_URL = 'http://localhost:5000/api';
 
 function App() {
@@ -56,7 +57,6 @@ function App() {
   const [doCV, setDoCV] = useState(false);
   const [preprocessedText, setPreprocessedText] = useState('');
   const [showPreview, setShowPreview] = useState(false);
-
 
   
   // Custom error alert component
@@ -842,9 +842,12 @@ function App() {
                 <Nav.Item>
                   <Nav.Link eventKey="markov">Markov Chain</Nav.Link>
                 </Nav.Item>
-                 <Nav.Item>
-    <Nav.Link eventKey="rl-plots">R-L Plots</Nav.Link>
-  </Nav.Item>
+                <Nav.Item>
+                  <Nav.Link eventKey="rl-plots">R-L Plots</Nav.Link>
+                </Nav.Item>
+                <Nav.Item>
+                  <Nav.Link eventKey="fourier">Fourier Analysis</Nav.Link>
+                </Nav.Item>
               </Nav>
             </Card.Header>
             <Card.Body style={{ height: 'auto', maxHeight: '900px', overflowY: 'auto' }}>
@@ -864,6 +867,12 @@ function App() {
                 </div>
               ) : (
                 <>
+                  {activeTab === 'rl-plots' && (
+                    <RLPlotsComponent corpusResults={corpusResult?.corpus_results || []} />
+                  )}
+                  {activeTab === 'fourier' && (
+                    <FourierAnalysisComponent />
+                  )}
                   {analysisMode === 'single' ? (
                     <>
                       {activeTab === 'data' && analysisResult && (
@@ -917,7 +926,7 @@ function App() {
                     </>
                   ) : (
                     // Corpus mode results
-                    corpusResult && (
+                    corpusResult && activeTab === 'data' && (
                       <Table striped bordered hover responsive>
                         <thead>
                           <tr>
@@ -1009,9 +1018,6 @@ function App() {
       </Row>
 
       <Row>
-      {activeTab === 'rl-plots' && (
-  <RLPlotsComponent corpusResults={corpusResult?.corpus_results || []} />
-)}
         <Col md={12}>
           <Card>
             <Card.Header>Distribution</Card.Header>
@@ -1032,8 +1038,6 @@ function App() {
             </Card.Body>
           </Card>
         </Col>
-
-
       </Row>
 
       {/* Preview Modal */}
@@ -1074,4 +1078,3 @@ function App() {
 }
 
 export default App;
-
