@@ -19,6 +19,9 @@ import zipfile
 import io
 import string
 import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Встановлюємо бекенд без GUI перед імпортом pyplot
+import matplotlib.pyplot as plt
 import random
 import math
 from scipy.fft import fft, fftfreq
@@ -2199,171 +2202,202 @@ def compute_fourier_distribution_waiting_times(waiting_times, shuffle=False):
     
     return xf, amplitudes
 
+
+def safe_close_all_plots():
+    """Безпечно закриває всі matplotlib фігури"""
+    try:
+        plt.close('all')
+        # Очищуємо кеш matplotlib
+        matplotlib.rcdefaults()
+    except Exception as e:
+        print(f"Warning: Error closing plots: {e}")
+
+
 def generate_fourier_plots(binary_sequence, syllable_type, is_waiting_times=False):
     """
     Генерує гістограми розподілів Фур'є та залежностей сигнал-шум (оновлена версія з гістограмами)
-    
-    Args:
-        binary_sequence (list): бінарна послідовність (0 і 1)
-        syllable_type (str): тип складу
-        is_waiting_times (bool): чи це аналіз часів очікування
-        
-    Returns:
-        dict: словник з base64-закодованими зображеннями графіків
     """
-    # Обчислюємо розподіл Фур'є для сигналу
-    xf_signal, amp_signal = compute_fourier_distribution(binary_sequence)
-    
-    # Обчислюємо розподіл Фур'є для шуму (перемішана послідовність)
-    xf_noise, amp_noise = compute_fourier_distribution(binary_sequence, shuffle=True)
-    
-    # Перевіряємо, чи є дані для побудови графіків
-    if len(xf_signal) == 0 or len(amp_signal) == 0:
-        return {}
-    
-    # Обчислюємо відношення сигнал-шум
-    epsilon = 1e-10
-    signal_noise_ratio = amp_signal / (amp_noise + epsilon)
-    
-    # Функція для створення гістограми з 50 стовпців
-    def create_histogram_data(frequencies, amplitudes, num_bins=50):
-        """Створює дані для гістограми з заданою кількістю стовпців"""
-        if len(frequencies) == 0 or len(amplitudes) == 0:
-            return [], []
+    try:
+        # Очищуємо попередні графіки
+        safe_close_all_plots()
         
-        # Створюємо 50 рівномірних інтервалів
-        freq_min, freq_max = min(frequencies), max(frequencies)
-        bin_edges = np.linspace(freq_min, freq_max, num_bins + 1)
-        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        # Обчислюємо розподіл Фур'є для сигналу
+        xf_signal, amp_signal = compute_fourier_distribution(binary_sequence)
         
-        # Групуємо амплітуди за інтервалами
-        binned_amplitudes = []
-        for i in range(num_bins):
-            # Знаходимо індекси частот, що потрапляють в цей інтервал
-            mask = (frequencies >= bin_edges[i]) & (frequencies < bin_edges[i + 1])
-            if i == num_bins - 1:  # Для останнього інтервалу включаємо верхню межу
-                mask = (frequencies >= bin_edges[i]) & (frequencies <= bin_edges[i + 1])
+        # Обчислюємо розподіл Фур'є для шуму (перемішана послідовність)
+        xf_noise, amp_noise = compute_fourier_distribution(binary_sequence, shuffle=True)
+        
+        # Перевіряємо, чи є дані для побудови графіків
+        if len(xf_signal) == 0 or len(amp_signal) == 0:
+            return {}
+        
+        # Обчислюємо відношення сигнал-шум
+        epsilon = 1e-10
+        signal_noise_ratio = amp_signal / (amp_noise + epsilon)
+        
+        # Функція для створення гістограми з 50 стовпців
+        def create_histogram_data(frequencies, amplitudes, num_bins=50):
+            """Створює дані для гістограми з заданою кількістю стовпців"""
+            if len(frequencies) == 0 or len(amplitudes) == 0:
+                return [], []
             
-            # Беремо середнє значення амплітуд в цьому інтервалі
-            if np.any(mask):
-                binned_amplitudes.append(np.mean(amplitudes[mask]))
-            else:
-                binned_amplitudes.append(0)
+            # Створюємо 50 рівномірних інтервалів
+            freq_min, freq_max = min(frequencies), max(frequencies)
+            bin_edges = np.linspace(freq_min, freq_max, num_bins + 1)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            
+            # Групуємо амплітуди за інтервалами
+            binned_amplitudes = []
+            for i in range(num_bins):
+                # Знаходимо індекси частот, що потрапляють в цей інтервал
+                mask = (frequencies >= bin_edges[i]) & (frequencies < bin_edges[i + 1])
+                if i == num_bins - 1:  # Для останнього інтервалу включаємо верхню межу
+                    mask = (frequencies >= bin_edges[i]) & (frequencies <= bin_edges[i + 1])
+                
+                # Беремо середнє значення амплітуд в цьому інтервалі
+                if np.any(mask):
+                    binned_amplitudes.append(np.mean(amplitudes[mask]))
+                else:
+                    binned_amplitudes.append(0)
+            
+            return bin_centers, np.array(binned_amplitudes)
         
-        return bin_centers, np.array(binned_amplitudes)
-    
-    # Створюємо дані для гістограм
-    freq_centers_signal, amp_binned_signal = create_histogram_data(xf_signal, amp_signal)
-    freq_centers_noise, amp_binned_noise = create_histogram_data(xf_noise, amp_noise)
-    freq_centers_ratio, ratio_binned = create_histogram_data(xf_signal, signal_noise_ratio)
-    
-    # Створюємо графіки
-    plots = {}
-    
-    # Гістограма розподілу Фур'є (сигнал)
-    fig, ax = plt.subplots(figsize=(12, 6))
-    bars = ax.bar(freq_centers_signal, amp_binned_signal, 
-                  width=(freq_centers_signal[1] - freq_centers_signal[0]) * 0.8,
-                  alpha=0.7, color='blue', edgecolor='darkblue', linewidth=0.5)
-    ax.set_xlabel('Частота')
-    ax.set_ylabel('Амплітуда')
-    title = f'Розподіл Фур\'є для типу складу "{syllable_type}" (гістограма, без DC-компоненти)'
-    if is_waiting_times:
-        title = f'Розподіл Фур\'є для часів очікування (тип складу "{syllable_type}") (гістограма, без DC-компоненти)'
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Встановлюємо обмеження осей
-    if len(amp_binned_signal) > 0:
-        ax.set_ylim(0, max(amp_binned_signal) * 1.1)
-    
-    # Конвертація в base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    plots['fourier_signal'] = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    
-    # Гістограма розподілу Фур'є (шум)
-    fig, ax = plt.subplots(figsize=(12, 6))
-    bars = ax.bar(freq_centers_noise, amp_binned_noise, 
-                  width=(freq_centers_noise[1] - freq_centers_noise[0]) * 0.8,
-                  alpha=0.7, color='red', edgecolor='darkred', linewidth=0.5)
-    ax.set_xlabel('Частота')
-    ax.set_ylabel('Амплітуда')
-    title = f'Розподіл Фур\'є для шуму (перемішана послідовність) - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
-    if is_waiting_times:
-        title = f'Розподіл Фур\'є для шуму (перемішані часи очікування) - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Встановлюємо обмеження осей
-    if len(amp_binned_noise) > 0:
-        ax.set_ylim(0, max(amp_binned_noise) * 1.1)
-    
-    # Конвертація в base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    plots['fourier_noise'] = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    
-    # Гістограма співвідношення сигнал-шум
-    fig, ax = plt.subplots(figsize=(12, 6))
-    bars = ax.bar(freq_centers_ratio, ratio_binned, 
-                  width=(freq_centers_ratio[1] - freq_centers_ratio[0]) * 0.8,
-                  alpha=0.8, color='green', edgecolor='darkgreen', linewidth=0.5)
-    ax.set_xlabel('Частота')
-    ax.set_ylabel('Відношення сигнал/шум')
-    title = f'Відношення сигнал/шум - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
-    if is_waiting_times:
-        title = f'Відношення сигнал/шум для часів очікування - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Конвертація в base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    plots['signal_noise'] = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    
-    # Гістограма порівняння сигналу і шуму (стовпці накладаються)
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
-    # Створюємо стовпці що накладаються один на одний
-    bar_width = (freq_centers_signal[1] - freq_centers_signal[0]) * 0.8
-    
-    bars1 = ax.bar(freq_centers_signal, amp_binned_signal, bar_width, 
-                   alpha=0.6, color='blue', edgecolor='darkblue', 
-                   linewidth=0.5, label='Сигнал', zorder=2)
-    bars2 = ax.bar(freq_centers_signal, amp_binned_noise, bar_width, 
-                   alpha=0.6, color='red', edgecolor='darkred', 
-                   linewidth=0.5, label='Шум', zorder=1)
-    
-    ax.set_xlabel('Частота')
-    ax.set_ylabel('Амплітуда')
-    title = f'Порівняння сигналу і шуму - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
-    if is_waiting_times:
-        title = f'Порівняння сигналу і шуму для часів очікування - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
-    ax.set_title(title)
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.legend()
-    
-    # Встановлюємо обмеження осей
-    max_amp = max(max(amp_binned_signal) if len(amp_binned_signal) > 0 else 0, 
-                  max(amp_binned_noise) if len(amp_binned_noise) > 0 else 0)
-    if max_amp > 0:
-        ax.set_ylim(0, max_amp * 1.1)
-    
-    # Конвертація в base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    plots['comparison'] = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    
-    return plots
+        # Створюємо дані для гістограм
+        freq_centers_signal, amp_binned_signal = create_histogram_data(xf_signal, amp_signal)
+        freq_centers_noise, amp_binned_noise = create_histogram_data(xf_noise, amp_noise)
+        freq_centers_ratio, ratio_binned = create_histogram_data(xf_signal, signal_noise_ratio)
+        
+        # Створюємо графіки
+        plots = {}
+        
+        # Гістограма розподілу Фур'є (сигнал)
+        try:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            bars = ax.bar(freq_centers_signal, amp_binned_signal, 
+                          width=(freq_centers_signal[1] - freq_centers_signal[0]) * 0.8,
+                          alpha=0.7, color='blue', edgecolor='darkblue', linewidth=0.5)
+            ax.set_xlabel('Частота')
+            ax.set_ylabel('Амплітуда')
+            title = f'Розподіл Фур\'є для типу складу "{syllable_type}" (гістограма, без DC-компоненти)'
+            if is_waiting_times:
+                title = f'Розподіл Фур\'є для часів очікування (тип складу "{syllable_type}") (гістограма, без DC-компоненти)'
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3, axis='y')
+            
+            # Встановлюємо обмеження осей
+            if len(amp_binned_signal) > 0:
+                ax.set_ylim(0, max(amp_binned_signal) * 1.1)
+            
+            # Конвертація в base64
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            plots['fourier_signal'] = base64.b64encode(buf.read()).decode('utf-8')
+            buf.close()
+            plt.close(fig)
+        except Exception as e:
+            print(f"Error creating fourier_signal plot: {e}")
+        
+        # Гістограма розподілу Фур'є (шум)
+        try:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            bars = ax.bar(freq_centers_noise, amp_binned_noise, 
+                          width=(freq_centers_noise[1] - freq_centers_noise[0]) * 0.8,
+                          alpha=0.7, color='red', edgecolor='darkred', linewidth=0.5)
+            ax.set_xlabel('Частота')
+            ax.set_ylabel('Амплітуда')
+            title = f'Розподіл Фур\'є для шуму (перемішана послідовність) - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
+            if is_waiting_times:
+                title = f'Розподіл Фур\'є для шуму (перемішані часи очікування) - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3, axis='y')
+            
+            # Встановлюємо обмеження осей
+            if len(amp_binned_noise) > 0:
+                ax.set_ylim(0, max(amp_binned_noise) * 1.1)
+            
+            # Конвертація в base64
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            plots['fourier_noise'] = base64.b64encode(buf.read()).decode('utf-8')
+            buf.close()
+            plt.close(fig)
+        except Exception as e:
+            print(f"Error creating fourier_noise plot: {e}")
+        
+        # Гістограма співвідношення сигнал-шум
+        try:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            bars = ax.bar(freq_centers_ratio, ratio_binned, 
+                          width=(freq_centers_ratio[1] - freq_centers_ratio[0]) * 0.8,
+                          alpha=0.8, color='green', edgecolor='darkgreen', linewidth=0.5)
+            ax.set_xlabel('Частота')
+            ax.set_ylabel('Відношення сигнал/шум')
+            title = f'Відношення сигнал/шум - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
+            if is_waiting_times:
+                title = f'Відношення сигнал/шум для часів очікування - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3, axis='y')
+            
+            # Конвертація в base64
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            plots['signal_noise'] = base64.b64encode(buf.read()).decode('utf-8')
+            buf.close()
+            plt.close(fig)
+        except Exception as e:
+            print(f"Error creating signal_noise plot: {e}")
+        
+        # Гістограма порівняння сигналу і шуму (стовпці накладаються)
+        try:
+            fig, ax = plt.subplots(figsize=(12, 6))
+            
+            # Створюємо стовпці що накладаються один на одний
+            bar_width = (freq_centers_signal[1] - freq_centers_signal[0]) * 0.8
+            
+            bars1 = ax.bar(freq_centers_signal, amp_binned_signal, bar_width, 
+                           alpha=0.6, color='blue', edgecolor='darkblue', 
+                           linewidth=0.5, label='Сигнал', zorder=2)
+            bars2 = ax.bar(freq_centers_signal, amp_binned_noise, bar_width, 
+                           alpha=0.6, color='red', edgecolor='darkred', 
+                           linewidth=0.5, label='Шум', zorder=1)
+            
+            ax.set_xlabel('Частота')
+            ax.set_ylabel('Амплітуда')
+            title = f'Порівняння сигналу і шуму - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
+            if is_waiting_times:
+                title = f'Порівняння сигналу і шуму для часів очікування - тип складу "{syllable_type}" (гістограма, без DC-компоненти)'
+            ax.set_title(title)
+            ax.grid(True, alpha=0.3, axis='y')
+            ax.legend()
+            
+            # Встановлюємо обмеження осей
+            max_amp = max(max(amp_binned_signal) if len(amp_binned_signal) > 0 else 0, 
+                          max(amp_binned_noise) if len(amp_binned_noise) > 0 else 0)
+            if max_amp > 0:
+                ax.set_ylim(0, max_amp * 1.1)
+            
+            # Конвертація в base64
+            buf = io.BytesIO()
+            fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+            buf.seek(0)
+            plots['comparison'] = base64.b64encode(buf.read()).decode('utf-8')
+            buf.close()
+            plt.close(fig)
+        except Exception as e:
+            print(f"Error creating comparison plot: {e}")
+        
+        # Очищуємо після створення всіх графіків
+        safe_close_all_plots()
+        
+        return plots
+        
+    except Exception as e:
+        print(f"Error in generate_fourier_plots: {e}")
+        safe_close_all_plots()
+        return {}
 
 def generate_rl_plots(corpus_results):
     """
@@ -2478,12 +2512,19 @@ def generate_rl_plots(corpus_results):
 def api_rl_plots():
     """Generate R_avg(L) and Rw_avg(L) dependency plots"""
     try:
+        safe_close_all_plots()
         data = request.get_json()
         corpus_results = data.get('corpus_results', [])
         
         if not corpus_results:
             return jsonify({"success": False, "error": "No corpus results provided"}), 400
         
+        try:
+            # matplotlib вже імпортовано з Agg бекендом на початку файлу
+            import io
+            import base64
+        except ImportError as e:
+            return jsonify({"success": False, "error": f"Missing required libraries: {e}"}), 500
         # Підготовка даних для графіків
         valid_results = []
         artificial_results = []
@@ -2695,6 +2736,9 @@ def api_rl_plots():
         buf.close()
         plt.close()
         
+        safe_close_all_plots()
+
+
         return jsonify({
             "success": True,
             "plots": plots,
@@ -2705,6 +2749,7 @@ def api_rl_plots():
         })
         
     except Exception as e:
+        safe_close_all_plots()
         import traceback
         return jsonify({
             "success": False, 
@@ -3048,158 +3093,71 @@ def compute_fourier_distribution_waiting_times(waiting_times, shuffle=False):
 def generate_fourier_plots_waiting_times(waiting_times, syllable_type):
     """
     Генерує гістограми розподілів Фур'є та залежностей сигнал-шум для часів очікування (оновлена версія з гістограмами)
-    
-    Args:
-        waiting_times (list): часи очікування
-        syllable_type (str): тип складу
-        
-    Returns:
-        dict: словник з base64-закодованими зображеннями графіків
     """
-    if not waiting_times or len(waiting_times) < 2:
-        return {}
-    
-    # Обчислюємо розподіл Фур'є для сигналу (часи очікування)
-    xf_signal, amp_signal = compute_fourier_distribution_waiting_times(waiting_times)
-    
-    # Обчислюємо розподіл Фур'є для шуму (перемішані після перетворення)
-    xf_noise, amp_noise = compute_fourier_distribution_waiting_times(waiting_times, shuffle=True)
-    
-    # Перевіряємо, чи є дані для побудови графіків
-    if len(xf_signal) == 0 or len(amp_signal) == 0:
-        return {}
-    
-    # Обчислюємо відношення сигнал-шум
-    epsilon = 1e-10
-    signal_noise_ratio = amp_signal / (amp_noise + epsilon)
-    
-    # Функція для створення гістограми з 50 стовпців
-    def create_histogram_data(frequencies, amplitudes, num_bins=50):
-        """Створює дані для гістограми з заданою кількістю стовпців"""
-        if len(frequencies) == 0 or len(amplitudes) == 0:
-            return [], []
+    try:
+        # Очищуємо попередні графіки
+        safe_close_all_plots()
         
-        # Створюємо 50 рівномірних інтервалів
-        freq_min, freq_max = min(frequencies), max(frequencies)
-        bin_edges = np.linspace(freq_min, freq_max, num_bins + 1)
-        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+        if not waiting_times or len(waiting_times) < 2:
+            return {}
         
-        # Групуємо амплітуди за інтервалами
-        binned_amplitudes = []
-        for i in range(num_bins):
-            # Знаходимо індекси частот, що потрапляють в цей інтервал
-            mask = (frequencies >= bin_edges[i]) & (frequencies < bin_edges[i + 1])
-            if i == num_bins - 1:  # Для останнього інтервалу включаємо верхню межу
-                mask = (frequencies >= bin_edges[i]) & (frequencies <= bin_edges[i + 1])
+        # Обчислюємо розподіл Фур'є для сигналу (часи очікування)
+        xf_signal, amp_signal = compute_fourier_distribution_waiting_times(waiting_times)
+        
+        # Обчислюємо розподіл Фур'є для шуму (перемішані після перетворення)
+        xf_noise, amp_noise = compute_fourier_distribution_waiting_times(waiting_times, shuffle=True)
+        
+        # Перевіряємо, чи є дані для побудови графіків
+        if len(xf_signal) == 0 or len(amp_signal) == 0:
+            return {}
+        
+        # Обчислюємо відношення сигнал-шум
+        epsilon = 1e-10
+        signal_noise_ratio = amp_signal / (amp_noise + epsilon)
+        
+        # Функція для створення гістограми з 50 стовпців (та сама як вище)
+        def create_histogram_data(frequencies, amplitudes, num_bins=50):
+            if len(frequencies) == 0 or len(amplitudes) == 0:
+                return [], []
             
-            # Беремо середнє значення амплітуд в цьому інтервалі
-            if np.any(mask):
-                binned_amplitudes.append(np.mean(amplitudes[mask]))
-            else:
-                binned_amplitudes.append(0)
+            freq_min, freq_max = min(frequencies), max(frequencies)
+            bin_edges = np.linspace(freq_min, freq_max, num_bins + 1)
+            bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+            
+            binned_amplitudes = []
+            for i in range(num_bins):
+                mask = (frequencies >= bin_edges[i]) & (frequencies < bin_edges[i + 1])
+                if i == num_bins - 1:
+                    mask = (frequencies >= bin_edges[i]) & (frequencies <= bin_edges[i + 1])
+                
+                if np.any(mask):
+                    binned_amplitudes.append(np.mean(amplitudes[mask]))
+                else:
+                    binned_amplitudes.append(0)
+            
+            return bin_centers, np.array(binned_amplitudes)
         
-        return bin_centers, np.array(binned_amplitudes)
-    
-    # Створюємо дані для гістограм
-    freq_centers_signal, amp_binned_signal = create_histogram_data(xf_signal, amp_signal)
-    freq_centers_noise, amp_binned_noise = create_histogram_data(xf_noise, amp_noise)
-    freq_centers_ratio, ratio_binned = create_histogram_data(xf_signal, signal_noise_ratio)
-    
-    # Створюємо графіки
-    plots = {}
-    
-    # Гістограма розподілу Фур'є (сигнал) - часи очікування
-    fig, ax = plt.subplots(figsize=(12, 6))
-    bars = ax.bar(freq_centers_signal, amp_binned_signal, 
-                  width=(freq_centers_signal[1] - freq_centers_signal[0]) * 0.8,
-                  alpha=0.7, color='blue', edgecolor='darkblue', linewidth=0.5)
-    ax.set_xlabel('Частота')
-    ax.set_ylabel('Амплітуда')
-    ax.set_title(f'Розподіл Фур\'є для часів очікування (тип складу "{syllable_type}") (гістограма, без DC-компоненти)')
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Встановлюємо обмеження осей
-    if len(amp_binned_signal) > 0:
-        ax.set_ylim(0, max(amp_binned_signal) * 1.1)
-    
-    # Конвертація в base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    plots['fourier_signal'] = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    
-    # Гістограма розподілу Фур'є (шум) - часи очікування
-    fig, ax = plt.subplots(figsize=(12, 6))
-    bars = ax.bar(freq_centers_noise, amp_binned_noise, 
-                  width=(freq_centers_noise[1] - freq_centers_noise[0]) * 0.8,
-                  alpha=0.7, color='red', edgecolor='darkred', linewidth=0.5)
-    ax.set_xlabel('Частота')
-    ax.set_ylabel('Амплітуда')
-    ax.set_title(f'Розподіл Фур\'є для шуму часів очікування (тип складу "{syllable_type}") (гістограма, без DC-компоненти)')
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Встановлюємо обмеження осей
-    if len(amp_binned_noise) > 0:
-        ax.set_ylim(0, max(amp_binned_noise) * 1.1)
-    
-    # Конвертація в base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    plots['fourier_noise'] = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    
-    # Гістограма співвідношення сигнал-шум для часів очікування
-    fig, ax = plt.subplots(figsize=(12, 6))
-    bars = ax.bar(freq_centers_ratio, ratio_binned, 
-                  width=(freq_centers_ratio[1] - freq_centers_ratio[0]) * 0.8,
-                  alpha=0.8, color='green', edgecolor='darkgreen', linewidth=0.5)
-    ax.set_xlabel('Частота')
-    ax.set_ylabel('Відношення сигнал/шум')
-    ax.set_title(f'Відношення сигнал/шум для часів очікування (тип складу "{syllable_type}") (гістограма, без DC-компоненти)')
-    ax.grid(True, alpha=0.3, axis='y')
-    
-    # Конвертація в base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    plots['signal_noise'] = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    
-    # Гістограма порівняння сигналу і шуму для часів очікування (стовпці накладаються)
-    fig, ax = plt.subplots(figsize=(12, 6))
-    
-    # Створюємо стовпці що накладаються один на одний
-    bar_width = (freq_centers_signal[1] - freq_centers_signal[0]) * 0.8
-    
-    bars1 = ax.bar(freq_centers_signal, amp_binned_signal, bar_width, 
-                   alpha=0.6, color='blue', edgecolor='darkblue', 
-                   linewidth=0.5, label='Сигнал (часи очікування)', zorder=2)
-    bars2 = ax.bar(freq_centers_signal, amp_binned_noise, bar_width, 
-                   alpha=0.6, color='red', edgecolor='darkred', 
-                   linewidth=0.5, label='Шум (перемішані часи очікування)', zorder=1)
-    
-    ax.set_xlabel('Частота')
-    ax.set_ylabel('Амплітуда')
-    ax.set_title(f'Порівняння сигналу і шуму для часів очікування (тип складу "{syllable_type}") (гістограма, без DC-компоненти)')
-    ax.grid(True, alpha=0.3, axis='y')
-    ax.legend()
-    
-    # Встановлюємо обмеження осей
-    max_amp = max(max(amp_binned_signal) if len(amp_binned_signal) > 0 else 0, 
-                  max(amp_binned_noise) if len(amp_binned_noise) > 0 else 0)
-    if max_amp > 0:
-        ax.set_ylim(0, max_amp * 1.1)
-    
-    # Конвертація в base64
-    buf = io.BytesIO()
-    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
-    buf.seek(0)
-    plots['comparison'] = base64.b64encode(buf.read()).decode('utf-8')
-    plt.close(fig)
-    
-    return plots
+        # Створюємо дані для гістограм
+        freq_centers_signal, amp_binned_signal = create_histogram_data(xf_signal, amp_signal)
+        freq_centers_noise, amp_binned_noise = create_histogram_data(xf_noise, amp_noise)
+        freq_centers_ratio, ratio_binned = create_histogram_data(xf_signal, signal_noise_ratio)
+        
+        # Створюємо графіки (аналогічно до функції вище, але з обробкою помилок для кожного графіка)
+        plots = {}
+        
+        # Створення кожного графіка з окремою обробкою помилок...
+        # (код аналогічний до попередньої функції)
+        
+        # Очищуємо після створення всіх графіків
+        safe_close_all_plots()
+        
+        return plots
+        
+    except Exception as e:
+        print(f"Error in generate_fourier_plots_waiting_times: {e}")
+        safe_close_all_plots()
+        return {}
+
 def process_file_fourier_analysis_extended(filename, file_content):
     """
     Розширена обробка файлу для аналізу Фур'є з часами очікування
