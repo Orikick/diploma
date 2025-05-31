@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
+import JSZip from 'jszip';
 import {
   Container, Form, Button, Card, Row, Col, Spinner,
   Table, Nav, Tab, Alert, ProgressBar, Modal
@@ -38,7 +39,7 @@ function App() {
   });
   const [analysisMode, setAnalysisMode] = useState('single'); // 'single' or 'corpus'
   const [corpusFiles, setCorpusFiles] = useState([]);
-  const [corpusFilesContent, setCorpusFilesContent] = useState({}); // Новий стан для зберігання вмісту файлів корпусу
+  const [corpusFilesContent, setCorpusFilesContent] = useState({});
   const [zipFile, setZipFile] = useState(null);
   const [analysisResult, setAnalysisResult] = useState(null);
   const [corpusResult, setCorpusResult] = useState(null);
@@ -58,12 +59,9 @@ function App() {
   const [preprocessedText, setPreprocessedText] = useState('');
   const [showPreview, setShowPreview] = useState(false);
 
-  
   // Custom error alert component
   const ErrorAlert = ({ error, onClose }) => {
-    // Check if error is a simple string or a multiline message
     const hasMultipleLines = error && error.includes('\n');
-
     return (
       <Alert variant="danger" onClose={onClose} dismissible>
         {hasMultipleLines ? (
@@ -108,7 +106,6 @@ function App() {
     setCorpusFiles(files);
     setAnalysisMode('corpus');
 
-    // Зчитуємо вміст кожного файлу для подальшого використання
     const fileContents = {};
     let filesProcessed = 0;
 
@@ -117,8 +114,6 @@ function App() {
       reader.onload = (e) => {
         fileContents[file.name] = e.target.result;
         filesProcessed++;
-
-        // Коли всі файли зчитані, зберігаємо їх вміст
         if (filesProcessed === files.length) {
           setCorpusFilesContent(fileContents);
         }
@@ -126,7 +121,6 @@ function App() {
       reader.readAsText(file);
     });
 
-    // For corpus, we can estimate window parameters based on the first file
     if (files.length > 0) {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -137,10 +131,26 @@ function App() {
   };
 
   // Handle zip file upload
-  const handleZipUpload = (event) => {
+  const handleZipUpload = async (event) => {
     const file = event.target.files[0];
-    setZipFile(file);
-    setAnalysisMode('corpus');
+    try {
+      const zip = await JSZip.loadAsync(file);
+      const fileObjects = [];
+      const fileContents = {};
+      const txtFiles = Object.keys(zip.files).filter(name => name.endsWith('.txt'));
+      for (const name of txtFiles) {
+        const content = await zip.file(name).async('string');
+        const fileObj = new File([content], name, { type: 'text/plain' });
+        fileObjects.push(fileObj);
+        fileContents[name] = content;
+      }
+      setCorpusFiles(fileObjects);
+      setCorpusFilesContent(fileContents);
+      setAnalysisMode('corpus');
+      setZipFile(file);
+    } catch (err) {
+      setError('Failed to read zip file: ' + err.message);
+    }
   };
 
   // Calculate window parameters based on text length
@@ -164,33 +174,24 @@ function App() {
       }));
       setLoading(false);
     } catch (err) {
-      // Enhanced error handling
       const errorData = err.response?.data;
       let errorMessage = 'Failed to calculate window parameters';
-
       if (errorData) {
         if (errorData.context && errorData.error) {
           errorMessage = `${errorData.error} (Context: ${errorData.context})`;
         } else if (errorData.error) {
           errorMessage = errorData.error;
         }
-
-        // Add details if available
         if (errorData.details) {
           errorMessage += `\nDetails: ${errorData.details}`;
         }
-
-        // Add parameter information if available
         if (errorData.parameters) {
           const params = errorData.parameters;
           errorMessage += `\nParameters: n_size=${params.n_size}, split=${params.split}, text length=${params.text_length}`;
         }
       }
-
       setError(errorMessage);
       setLoading(false);
-
-      // Log more details to console for debugging
       if (errorData && errorData.trace) {
         console.error('Server error trace:', errorData.trace);
       }
@@ -207,22 +208,18 @@ function App() {
     try {
       setLoading(true);
       setError(null);
-
       const response = await axios.post(`${API_URL}/preprocess`, {
         text: fileContent,
         do_preprocess: doPreprocess,
         do_syllables: doSyllables,
         do_cv: doCV
       });
-
       setPreprocessedText(response.data.processed_text);
       setShowPreview(true);
       setLoading(false);
     } catch (err) {
-      // Enhanced error handling
       const errorData = err.response?.data;
       let errorMessage = 'Preview processing failed';
-
       if (errorData) {
         if (errorData.context && errorData.error) {
           errorMessage = `${errorData.error} (Context: ${errorData.context})`;
@@ -232,7 +229,6 @@ function App() {
       } else if (err.message) {
         errorMessage += `: ${err.message}`;
       }
-
       setError(errorMessage);
       setLoading(false);
     }
@@ -246,23 +242,17 @@ function App() {
       setProcessingProgress(0);
 
       const formData = new FormData();
-
-      // Add configuration parameters
       Object.keys(config).forEach(key => {
         formData.append(key, config[key]);
       });
-
-      // Add preprocessing options
       formData.append('do_preprocess', doPreprocess);
       formData.append('do_syllables', doSyllables);
       formData.append('do_cv', doCV);
 
       if (zipFile) {
-        // Upload as zip file
         formData.append('zip_file', zipFile);
         setCorpusP(true);
       } else if (corpusFiles.length > 0) {
-        // Upload as multiple files
         corpusFiles.forEach(file => {
           formData.append('files[]', file);
         });
@@ -286,12 +276,9 @@ function App() {
       setCorpusResult(response.data);
       setLoading(false);
       setProcessingProgress(100);
-
     } catch (err) {
-      // Enhanced error handling
       const errorData = err.response?.data;
       let errorMessage = 'Corpus processing failed';
-
       if (errorData) {
         if (errorData.context && errorData.error) {
           errorMessage = `${errorData.error} (Context: ${errorData.context})`;
@@ -301,7 +288,6 @@ function App() {
       } else if (err.message) {
         errorMessage += `: ${err.message}`;
       }
-
       setError(errorMessage);
       setLoading(false);
     }
@@ -331,8 +317,6 @@ function App() {
       try {
         setLoading(true);
         setError(null);
-
-        // Include preprocessing options in the request
         const response = await axios.post(`${API_URL}/analyze`, {
           text: fileContent,
           ...config,
@@ -341,44 +325,33 @@ function App() {
           do_syllables: doSyllables,
           do_cv: doCV
         });
-
         setAnalysisResult(response.data);
         setLoading(false);
-
-        // Get Markov graph data if in static mode
         if (config.definition === 'static') {
           getMarkovGraph();
         }
       } catch (err) {
-        // Enhanced error handling
         const errorData = err.response?.data;
         let errorMessage = 'Analysis failed';
-
         if (errorData) {
           if (errorData.context && errorData.error) {
             errorMessage = `${errorData.error} (Context: ${errorData.context})`;
           } else if (errorData.error) {
             errorMessage = errorData.error;
           }
-
-          // Add details if available
           if (errorData.details) {
             errorMessage += `\nDetails: ${errorData.details}`;
           }
         } else if (err.message) {
           errorMessage += `: ${err.message}`;
         }
-
         setError(errorMessage);
         setLoading(false);
-
-        // Log more details to console for debugging
         if (errorData && errorData.trace) {
           console.error('Server error trace:', errorData.trace);
         }
       }
     } else {
-      // Corpus mode
       await processCorpus();
     }
   };
@@ -389,7 +362,6 @@ function App() {
       const response = await axios.post(`${API_URL}/markov-graph`, {
         n_size: config.n_size
       });
-
       if (response.data.error) {
         setError('Failed to generate Markov graph: ' + response.data.error);
       } else {
@@ -416,20 +388,12 @@ function App() {
     setSelectedNgram(ngram);
   };
 
-  // Нова функція для обробки кліку по рядку в таблиці результатів корпусного аналізу
+  // Handle corpus row click
   const handleCorpusRowClick = async (fileName) => {
-    // Знаходимо вміст файлу
-    let content = null;
-
-    // Перевіряємо, чи маємо вже вміст файлу в стані
-    if (corpusFilesContent[fileName]) {
-      content = corpusFilesContent[fileName];
-    } else {
-      // Якщо вміст файлу ще не збережено, перевіряємо corpusFiles
+    let content = corpusFilesContent[fileName];
+    if (!content) {
       const fileObj = corpusFiles.find(f => f.name === fileName);
-
       if (fileObj) {
-        // Зчитуємо вміст файлу
         content = await new Promise((resolve) => {
           const reader = new FileReader();
           reader.onload = (e) => resolve(e.target.result);
@@ -440,32 +404,16 @@ function App() {
         return;
       }
     }
-
-    // Переходимо до режиму аналізу одиночного файлу
     setAnalysisMode('single');
-
-    // Створюємо об'єкт File, якщо файл не було знайдено у corpusFiles
-    let fileObj = corpusFiles.find(f => f.name === fileName);
-    if (!fileObj) {
-      fileObj = new File([content], fileName, { type: 'text/plain' });
-    }
-
-    // Зберігаємо файл та його вміст
+    const fileObj = corpusFiles.find(f => f.name === fileName) || new File([content], fileName, { type: 'text/plain' });
     setFile(fileObj);
     setFileContent(content);
-
-    // Скидаємо результати попереднього аналізу
     setAnalysisResult(null);
     setSelectedNgram(null);
     setMarkovGraph(null);
-
-    // Розраховуємо параметри вікна для нового файлу
     await calculateWindowParams(content);
-
-    // Автоматичний аналіз файлу
     try {
       setLoading(true);
-
       const response = await axios.post(`${API_URL}/analyze`, {
         text: content,
         ...config,
@@ -474,25 +422,19 @@ function App() {
         do_syllables: doSyllables,
         do_cv: doCV
       });
-
       setAnalysisResult(response.data);
-
-      // Get Markov graph data if in static mode
       if (config.definition === 'static') {
         await getMarkovGraph();
       }
-
       setLoading(false);
     } catch (err) {
       const errorData = err.response?.data;
       let errorMessage = 'Analysis failed';
-
       if (errorData && errorData.error) {
         errorMessage = errorData.error;
       } else if (err.message) {
         errorMessage += `: ${err.message}`;
       }
-
       setError(errorMessage);
       setLoading(false);
     }
@@ -501,10 +443,8 @@ function App() {
   // Get data for distribution graph
   const getDistributionData = () => {
     if (!selectedNgram || !analysisResult?.ngram_data) return [];
-
     const ngramData = analysisResult.ngram_data[selectedNgram];
     if (!ngramData || !ngramData.bool) return [];
-
     return ngramData.bool.map((value, index) => ({
       position: index,
       value: value
@@ -514,10 +454,8 @@ function App() {
   // Get data for fluctuation graph
   const getFluctuationData = () => {
     if (!selectedNgram || !analysisResult?.ngram_data) return [];
-
     const ngramData = analysisResult.ngram_data[selectedNgram];
     if (!ngramData || !ngramData.fa) return [];
-
     const faKeys = Object.keys(ngramData.fa).map(Number);
     return faKeys.map(key => ({
       window: key,
@@ -529,13 +467,100 @@ function App() {
   // Get data for R/alpha scatter plot
   const getRAlphaData = () => {
     if (!analysisResult?.dataframe) return [];
-
     return analysisResult.dataframe.map(row => ({
       ngram: row.ngram,
       R: row.R,
       b: row.b,
       selected: row.ngram === selectedNgram
     }));
+  };
+
+  // Download processed text for single file
+  const handleDownloadProcessedText = async () => {
+    try {
+      const response = await axios.post(`${API_URL}/preprocess`, {
+        text: fileContent,
+        do_preprocess: doPreprocess,
+        do_syllables: doSyllables,
+        do_cv: doCV
+      });
+      const processedText = response.data.processed_text;
+      const blob = new Blob([processedText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `processed_${file.name}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError('Failed to download processed text: ' + err.message);
+    }
+  };
+
+  // Download processed text for a single corpus file
+  const handleDownloadCorpusProcessedText = async (fileName) => {
+    try {
+      const content = corpusFilesContent[fileName];
+      if (!content) {
+        setError(`Content for ${fileName} not found`);
+        return;
+      }
+      const response = await axios.post(`${API_URL}/preprocess`, {
+        text: content,
+        do_preprocess: doPreprocess,
+        do_syllables: doSyllables,
+        do_cv: doCV
+      });
+      const processedText = response.data.processed_text;
+      const blob = new Blob([processedText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `processed_${fileName}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(`Failed to download processed text for ${fileName}: ` + err.message);
+    }
+  };
+
+  // Download all processed texts for corpus
+  const handleDownloadAllProcessedTexts = async () => {
+    try {
+      const zip = new JSZip();
+      const promises = corpusResult.corpus_results.map(async (row) => {
+        if (!row.has_error) {
+          const fileName = row.file;
+          const content = corpusFilesContent[fileName];
+          if (content) {
+            const response = await axios.post(`${API_URL}/preprocess`, {
+              text: content,
+              do_preprocess: doPreprocess,
+              do_syllables: doSyllables,
+              do_cv: doCV
+            });
+            const processedText = response.data.processed_text;
+            zip.file(`processed_${fileName}`, processedText);
+          }
+        }
+      });
+      await Promise.all(promises);
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'processed_texts.zip';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError('Failed to download all processed texts: ' + err.message);
+    }
   };
 
   return (
@@ -876,40 +901,47 @@ function App() {
                   {analysisMode === 'single' ? (
                     <>
                       {activeTab === 'data' && analysisResult && (
-                        <Table striped bordered hover responsive>
-                          <thead>
-                            <tr>
-                              <th>Rank</th>
-                              <th>Ngram</th>
-                              <th>F</th>
-                              <th>R</th>
-                              <th>a</th>
-                              <th>b</th>
-                              <th>Goodness</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {analysisResult.dataframe.map((row, index) => (
-                              <tr
-                                key={index}
-                                onClick={!row.has_error ? () => handleNgramSelect(row.ngram) : undefined}
-                                className={row.has_error ? "table-danger" : (selectedNgram === row.ngram ? 'table-primary' : '')}
-                                style={{ cursor: row.has_error ? 'not-allowed' : 'pointer' }}
-                                title={row.has_error ?
-                                  `Помилка при обробці n-грами ${row.ngram}` :
-                                  `Клікніть для детального аналізу n-грами ${row.ngram}`}
-                              >
-                                <td>{row.rank}</td>
-                                <td>{row.ngram}</td>
-                                <td>{row.F}</td>
-                                <td>{row.has_error ? "-" : row.R}</td>
-                                <td>{row.has_error ? "-" : row.a}</td>
-                                <td>{row.has_error ? "-" : row.b}</td>
-                                <td>{row.has_error ? "-" : row.goodness}</td>
+                        <>
+                          <Table striped bordered hover responsive>
+                            <thead>
+                              <tr>
+                                <th>Rank</th>
+                                <th>Ngram</th>
+                                <th>F</th>
+                                <th>R</th>
+                                <th>a</th>
+                                <th>b</th>
+                                <th>Goodness</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </Table>
+                            </thead>
+                            <tbody>
+                              {analysisResult.dataframe.map((row, index) => (
+                                <tr
+                                  key={index}
+                                  onClick={!row.has_error ? () => handleNgramSelect(row.ngram) : undefined}
+                                  className={row.has_error ? "table-danger" : (selectedNgram === row.ngram ? 'table-primary' : '')}
+                                  style={{ cursor: row.has_error ? 'not-allowed' : 'pointer' }}
+                                  title={row.has_error ?
+                                    `Помилка при обробці n-грами ${row.ngram}` :
+                                    `Клікніть для детального аналізу n-грами ${row.ngram}`}
+                                >
+                                  <td>{row.rank}</td>
+                                  <td>{row.ngram}</td>
+                                  <td>{row.F}</td>
+                                  <td>{row.has_error ? "-" : row.R}</td>
+                                  <td>{row.has_error ? "-" : row.a}</td>
+                                  <td>{row.has_error ? "-" : row.b}</td>
+                                  <td>{row.has_error ? "-" : row.goodness}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </Table>
+                          <div className="mt-3">
+                            <Button variant="success" onClick={handleDownloadProcessedText}>
+                              Download processed text
+                            </Button>
+                          </div>
+                        </>
                       )}
 
                       {activeTab === 'markov' && markovGraph && (
@@ -927,54 +959,73 @@ function App() {
                   ) : (
                     // Corpus mode results
                     corpusResult && activeTab === 'data' && (
-                      <Table striped bordered hover responsive>
-                        <thead>
-                          <tr>
-                            <th>№</th>
-                            <th>File</th>
-                            <th>F_min</th>
-                            <th>L</th>
-                            <th>V</th>
-                            <th>Time</th>
-                            <th>R_avg</th>
-                            <th>dR</th>
-                            <th>Rw_avg</th>
-                            <th>dRw</th>
-                            <th>b_avg</th>
-                            <th>db</th>
-                            <th>bw_avg</th>
-                            <th>dbw</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {corpusResult.corpus_results.map((row, index) => (
-                            <tr
-                              key={index}
-                              onClick={!row.has_error ? () => handleCorpusRowClick(row.file) : undefined}
-                              className={row.has_error ? "table-danger" : "cursor-pointer"}
-                              style={{ cursor: row.has_error ? 'not-allowed' : 'pointer' }}
-                              title={row.has_error ?
-                                `Помилка при обробці файлу ${row.file}` :
-                                `Клікніть для детального аналізу файлу ${row.file}`}
-                            >
-                              <td>{row['№']}</td>
-                              <td>{row.file}</td>
-                              <td>{row.has_error ? "-" : row.F_min}</td>
-                              <td>{row.has_error ? "-" : row.L}</td>
-                              <td>{row.has_error ? "-" : row.V}</td>
-                              <td>{row.has_error ? "-" : row.time}</td>
-                              <td>{row.has_error ? "-" : Number(row.R_avg).toFixed(4)}</td>
-                              <td>{row.has_error ? "-" : Number(row.dR).toFixed(4)}</td>
-                              <td>{row.has_error ? "-" : Number(row.Rw_avg).toFixed(4)}</td>
-                              <td>{row.has_error ? "-" : Number(row.dRw).toFixed(4)}</td>
-                              <td>{row.has_error ? "-" : Number(row.b_avg).toFixed(4)}</td>
-                              <td>{row.has_error ? "-" : Number(row.db).toFixed(4)}</td>
-                              <td>{row.has_error ? "-" : Number(row.bw_avg).toFixed(4)}</td>
-                              <td>{row.has_error ? "-" : Number(row.dbw).toFixed(4)}</td>
+                      <>
+                        <div className="mb-3">
+                          <Button variant="success" onClick={handleDownloadAllProcessedTexts}>
+                            Download all processed texts
+                          </Button>
+                        </div>
+                        <Table striped bordered hover responsive>
+                          <thead>
+                            <tr>
+                              <th>№</th>
+                              <th>File</th>
+                              <th>F_min</th>
+                              <th>L</th>
+                              <th>V</th>
+                              <th>Time</th>
+                              <th>R_avg</th>
+                              <th>dR</th>
+                              <th>Rw_avg</th>
+                              <th>dRw</th>
+                              <th>b_avg</th>
+                              <th>db</th>
+                              <th>bw_avg</th>
+                              <th>dbw</th>
+                              <th>Download</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </Table>
+                          </thead>
+                          <tbody>
+                            {corpusResult.corpus_results.map((row, index) => (
+                              <tr
+                                key={index}
+                                onClick={!row.has_error ? () => handleCorpusRowClick(row.file) : undefined}
+                                className={row.has_error ? "table-danger" : "cursor-pointer"}
+                                style={{ cursor: row.has_error ? 'not-allowed' : 'pointer' }}
+                                title={row.has_error ?
+                                  `Помилка при обробці файлу ${row.file}` :
+                                  `Клікніть для детального аналізу файлу ${row.file}`}
+                              >
+                                <td>{row['№']}</td>
+                                <td>{row.file}</td>
+                                <td>{row.has_error ? "-" : row.F_min}</td>
+                                <td>{row.has_error ? "-" : row.L}</td>
+                                <td>{row.has_error ? "-" : row.V}</td>
+                                <td>{row.has_error ? "-" : row.time}</td>
+                                <td>{row.has_error ? "-" : Number(row.R_avg).toFixed(4)}</td>
+                                <td>{row.has_error ? "-" : Number(row.dR).toFixed(4)}</td>
+                                <td>{row.has_error ? "-" : Number(row.Rw_avg).toFixed(4)}</td>
+                                <td>{row.has_error ? "-" : Number(row.dRw).toFixed(4)}</td>
+                                <td>{row.has_error ? "-" : Number(row.b_avg).toFixed(4)}</td>
+                                <td>{row.has_error ? "-" : Number(row.db).toFixed(4)}</td>
+                                <td>{row.has_error ? "-" : Number(row.bw_avg).toFixed(4)}</td>
+                                <td>{row.has_error ? "-" : Number(row.dbw).toFixed(4)}</td>
+                                <td>
+                                  {!row.has_error && (
+                                    <Button
+                                      variant="link"
+                                      size="sm"
+                                      onClick={() => handleDownloadCorpusProcessedText(row.file)}
+                                    >
+                                      Download
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </Table>
+                      </>
                     )
                   )}
                 </>
