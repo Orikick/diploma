@@ -226,5 +226,12 @@ npm start
 -	K.I. Goh and A.L. Barabasi Burstiness and memory in complex systems – 2008.
 -	Прокопова Л. Ще раз про основний параметр милозвучності української мови – 2010. – С. 76–80.
 -	M.E.J. NEWMAN Power laws, Pareto distributions and Zipf's law – 2004.
+-	Recharts [Електронний ресурс]: Режим доступу: https://recharts.org/
+-	React Bootstrap [Електронний ресурс]: Режим доступу: https://react-bootstrap.github.io/ 
+-	JSZip [Електронний ресурс]: Режим доступу: https://www.npmjs.com/package/jszip
+-	Axios [Електронний ресурс]: Режим доступу: https://axios-http.com/
+-	Flask [Електронний ресурс]: Режим доступу: https://flask.palletsprojects.com/
+-	scikit-learn [Електронний ресурс]: Режим доступу: https://scikit-learn.org/stable/
+-	Поділ слів на склади і правила переносу [Електронний ресурс]: https://zno.if.ua/?p=1414 
 
 ---
