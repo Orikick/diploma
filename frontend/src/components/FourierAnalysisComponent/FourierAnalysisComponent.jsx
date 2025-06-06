@@ -107,10 +107,7 @@ const FourierAnalysisComponent = () => {
         <Card>
           <Card.Header>Аналіз Фур'є для типів складів</Card.Header>
           <Card.Body>
-            <p className="text-muted">
-              Завантажте 5 поетичних текстів, 5 прозових текстів сумірних довжин та 1 найдовший прозовий текст
-              для аналізу найчастіших типів складів та побудови розподілів Фур'є для позицій і часів очікування.
-            </p>
+            
             
             <div className="alert alert-info">
               <h6>Типи аналізу:</h6>
@@ -128,9 +125,7 @@ const FourierAnalysisComponent = () => {
                 accept=".txt"
                 onChange={handleFileUpload}
               />
-              <Form.Text className="text-muted">
-                Рекомендовано завантажити 11 файлів: 5 поетичних + 5 прозових + 1 найдовший прозовий
-              </Form.Text>
+              
             </Form.Group>
 
             {files.length > 0 && (

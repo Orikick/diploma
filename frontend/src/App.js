@@ -12,7 +12,7 @@ import {
 } from 'recharts';
 import ForceGraph2D from 'react-force-graph-2d';
 import 'bootstrap/dist/css/bootstrap.min.css';
-import './App.css';
+import './App.scss';
 import RLPlotsComponent from './components/RLPlotsComponent/RLPlotsComponent';
 import FourierAnalysisComponent from './components/FourierAnalysisComponent/FourierAnalysisComponent';
 
